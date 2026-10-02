@@ -1,0 +1,6 @@
+{
+  "name": "Telenotes",
+  "description": "Telegram-style encrypted diary, book writing studio, notes, to-dos and reminders with biometrics and military-grade local storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
