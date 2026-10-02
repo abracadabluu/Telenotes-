@@ -21,7 +21,7 @@ on:
           - release
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -52,20 +52,27 @@ jobs:
         run: |
           npm run build
 
-      - name: Configure Capacitor for Dev (Live Webview) vs Main (Offline Production)
+      - name: Configure Capacitor & Android IDs (Dev Live Webview vs Main Production)
         run: |
-          BRANCH_NAME="${{ github.ref_name }}"
+          REF_NAME="${{ github.ref_name }}"
+          REF="${{ github.ref }}"
           MANUAL_URL="${{ github.event.inputs.webview_url }}"
           
-          if [ -n "$MANUAL_URL" ]; then
-            TARGET_URL="$MANUAL_URL"
-          elif [ "$BRANCH_NAME" = "dev" ]; then
-            TARGET_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          echo "Detected ref_name: $REF_NAME, ref: $REF"
+
+          if [ "$REF_NAME" = "dev" ] || [[ "$REF" == *"dev"* ]] || [ -n "$MANUAL_URL" ]; then
+            IS_DEV=true
           else
-            TARGET_URL=""
+            IS_DEV=false
           fi
 
-          if [ -n "$TARGET_URL" ]; then
+          if [ "$IS_DEV" = true ]; then
+            if [ -n "$MANUAL_URL" ]; then
+              TARGET_URL="$MANUAL_URL"
+            else
+              TARGET_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            fi
+
             echo "⚡ Setting up DEV LIVE WEBVIEW pointing to: $TARGET_URL"
             cat << EOF > capacitor.config.json
           {
@@ -86,7 +93,10 @@ jobs:
             }
           }
           EOF
+            # Update Android applicationId for Dev so it installs alongside Production
+            sed -i 's/applicationId "com.telenotes.app"/applicationId "com.telenotes.dev"/g' android/app/build.gradle
             echo "ARTIFACT_NAME=telenotes-dev-apk" >> $GITHUB_ENV
+            echo "APK_PREFIX=telenotes-dev" >> $GITHUB_ENV
           else
             echo "📦 Setting up PRODUCTION 100% OFFLINE BUNDLED APK"
             cat << EOF > capacitor.config.json
@@ -103,7 +113,9 @@ jobs:
             }
           }
           EOF
+            sed -i 's/applicationId "com.telenotes.dev"/applicationId "com.telenotes.app"/g' android/app/build.gradle
             echo "ARTIFACT_NAME=telenotes-production-apk" >> $GITHUB_ENV
+            echo "APK_PREFIX=telenotes-production" >> $GITHUB_ENV
           fi
 
       - name: Setup Android Platform & Generate Gradle Wrapper
@@ -122,6 +134,8 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon --stacktrace
           cd ..
+          # Rename output apk clearly
+          find android/app/build/outputs/apk/debug -name "*.apk" -exec cp {} android/app/build/outputs/apk/debug/${{ env.APK_PREFIX }}-debug.apk \;
 
       - name: Upload Debug APK Artifact
         if: "${{ github.event.inputs.build_type != 'release' }}"
