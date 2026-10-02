@@ -48,7 +48,7 @@ jobs:
           npm install --legacy-peer-deps --no-audit --no-fund
           npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest --legacy-peer-deps --no-audit --no-fund
 
-      - name: Build Web Application
+      - name: Build Web Application (Bundled Offline Assets)
         run: |
           npm run build
 
@@ -69,10 +69,13 @@ jobs:
           fi
 
           if [ "$IS_DEV" = true ]; then
+            REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+            REPO_OWNER=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+
             if [ -n "$MANUAL_URL" ]; then
               TARGET_URL="$MANUAL_URL"
             else
-              TARGET_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+              TARGET_URL="https://${REPO_OWNER}.github.io/${REPO_NAME}/"
             fi
 
             echo "⚡ BUILDING DEV APK pointing to: $TARGET_URL"
@@ -84,6 +87,7 @@ jobs:
             "server": {
               "url": "$TARGET_URL",
               "cleartext": true,
+              "errorPath": "index.html",
               "androidScheme": "https",
               "allowNavigation": ["*"]
             },

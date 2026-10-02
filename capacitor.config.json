@@ -3,12 +3,12 @@
   "appName": "Telenotes Dev",
   "webDir": "dist",
   "server": {
-    "url": "https://ais-pre-jerx2loq5b76kwmk4eyf3m-80533556186.asia-southeast1.run.app",
-    "cleartext": true,
+    "errorPath": "index.html",
     "androidScheme": "https",
+    "cleartext": true,
     "allowNavigation": [
-      "https://*.run.app",
       "https://*.github.io",
+      "https://*.run.app",
       "http://localhost:*",
       "*"
     ]
