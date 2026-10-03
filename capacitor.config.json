@@ -17,6 +17,17 @@
     "allowMixedContent": true,
     "captureInput": true,
     "webContentsDebuggingEnabled": true,
-    "backgroundColor": "#020617"
+    "backgroundColor": "#020617",
+    "buildOptions": {
+      "keystorePath": null,
+      "keystorePassword": null
+    }
+  },
+  "plugins": {
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK",
+      "backgroundColor": "#020617"
+    }
   }
 }
