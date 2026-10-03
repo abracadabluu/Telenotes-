@@ -5,19 +5,20 @@ import {
   Folder,
   AppSettings,
   StorageBreakdown,
-  TodoItem,
 } from './types';
 import { AndroidContainer } from './components/layout/AndroidContainer';
 import { TelegramFeed } from './components/home/TelegramFeed';
 import { DiaryCanvas } from './components/canvas/DiaryCanvas';
+import { BooksGallery } from './components/book/BooksGallery';
 import { BookStudio } from './components/book/BookStudio';
 import { SettingsModal } from './components/settings/SettingsModal';
-import { FirstTimeSetupWizard } from './components/security/FirstTimeSetupWizard';
 import { PasscodeLockOverlay } from './components/security/PasscodeLockOverlay';
 import { NotificationBanner } from './components/notifications/NotificationBanner';
-import { calculateStorageBreakdown } from './services/cryptoVault';
+import {
+  calculateStorageBreakdown,
+  saveHiddenVaultBackup,
+} from './services/cryptoVault';
 
-// Default initial state
 const DEFAULT_FOLDERS: Folder[] = [
   { id: 'all', name: 'All Notes', icon: '💬', color: '#38bdf8', isSystem: true },
   { id: 'personal', name: 'Personal', icon: '🌱', color: '#10b981' },
@@ -26,13 +27,22 @@ const DEFAULT_FOLDERS: Folder[] = [
 ];
 
 const INITIAL_SETTINGS: AppSettings = {
+  landingPage: 'diary',
   theme: 'telegram-dark',
   appIcon: 'classic',
-  chatListConfig: {
-    previewLines: 2,
-    showTimestamp: true,
-    showActionButtons: true,
+  activeFontFamily: 'Plus Jakarta Sans',
+  toolbarPosition: 'bottom',
+  diaryFeedConfig: {
+    showTagsBar: true,
+    snippetPreview: true,
+    showDate: true,
+    showWordCount: true,
+    showMediaCount: true,
     compactMode: false,
+  },
+  booksGridConfig: {
+    showWordGoal: true,
+    showGenreBadge: true,
   },
   security: {
     isPasscodeEnabled: true,
@@ -40,9 +50,13 @@ const INITIAL_SETTINGS: AppSettings = {
     salt: 'telenotes_demo_salt_16',
     biometricsEnabled: true,
     autoLockDelayMinutes: 5,
-    isSetupDone: true, // Opened ready to explore with default PIN 1234
+    isSetupDone: true,
     masterKeyHash: 'JM6O14fBpVf0SNFr6kDNOO9gOM6BA4kUY4CMnyOvizw=',
-    masterKeyHint: 'velvet-quill...',
+    masterKeyHint: 'velvet-quill-cipher',
+  },
+  autoBackup: {
+    interval: 'daily',
+    lastBackupTimestamp: Date.now(),
   },
   customFonts: [],
 };
@@ -52,10 +66,10 @@ const STARTER_DIARIES: DiaryEntry[] = [
     id: 'diary_starter_1',
     title: 'Welcome to Telenotes',
     content: `<h3>Your Encrypted Telegram-Style Diary & Book Studio</h3>
-    <p>Every diary entry appears here just like a message in a private chat thread. You can customize the <strong>profile avatar</strong>, write with <em>rich typography</em>, drag animated stickers anywhere on the canvas, record voice memos, and set reminders.</p>
+    <p>Every diary entry appears here just like a message in a private chat thread. You can write with <em>rich typography</em> in both <strong>English and Hindi</strong>, drag borderless stickers & GIFs anywhere on the canvas, record voice memos, and set custom wallpapers.</p>
     <blockquote>"The scariest moment is always just before you start. After that, things can only get better." — Stephen King</blockquote>
-    <p>Check out the <a href="https://telegram.org" target="_blank" style="color: #38bdf8; text-decoration: underline;">Telegram-style UI ergonomics</a> and start penning your thoughts.</p>`,
-    plainText: 'Welcome to Telenotes. Every diary entry appears here just like a message in a private chat thread. You can customize the profile avatar and write with rich typography.',
+    <p>Tap the <strong>☰ menu</strong> in the top left to switch between your Diary and your 2x2 Book Writing Studio.</p>`,
+    plainText: 'Welcome to Telenotes. Every diary entry appears here just like a message in a private chat thread. You can write with rich typography in both English and Hindi.',
     createdAt: Date.now() - 3600000 * 2,
     updatedAt: Date.now() - 3600000 * 2,
     avatar: {
@@ -65,11 +79,6 @@ const STARTER_DIARIES: DiaryEntry[] = [
     },
     folderId: 'all',
     isPinned: true,
-    todos: [
-      { id: 't1', text: 'Customize my app theme in Settings', done: false },
-      { id: 't2', text: 'Record a voice memo in Diary canvas', done: true },
-      { id: 't3', text: 'Outline my novel in Book Studio', done: false },
-    ],
     audioRecordings: [],
     stickers: [
       {
@@ -100,9 +109,6 @@ const STARTER_DIARIES: DiaryEntry[] = [
     },
     folderId: 'personal',
     isPinned: false,
-    todos: [
-      { id: 't2_1', text: 'Review Chapter 3 manuscript draft', done: true },
-    ],
     audioRecordings: [],
     stickers: [],
     attachments: [],
@@ -120,6 +126,11 @@ const STARTER_BOOKS: BookProject[] = [
     targetWords: 30000,
     createdAt: Date.now() - 86400000 * 3,
     updatedAt: Date.now() - 86400000,
+    coverStyle: {
+      texture: 'leather-classic',
+      goldFoil: true,
+      ribbonColor: '#f59e0b',
+    },
     chapters: [
       {
         id: 'chap_1',
@@ -156,19 +167,40 @@ const STARTER_BOOKS: BookProject[] = [
     ],
     outlineNotes: 'Three-Act Structure: Arthur arrives, uncovers the brass cipher box, and must race against the winter solstice.',
   },
-];
-
-const DEFAULT_TODOS: TodoItem[] = [
-  { id: 'todo_1', text: 'Customize app theme & dynamic icon', done: false },
-  { id: 'todo_2', text: 'Write first encrypted diary reflection', done: false },
-  { id: 'todo_3', text: 'Outline Chapter 1 in Book Studio', done: true },
+  {
+    id: 'book_starter_2',
+    title: 'Shadows of Varanasi',
+    subtitle: 'A Historical Noir',
+    author: 'K. Sharma',
+    genre: 'Historical Fiction',
+    targetWords: 45000,
+    createdAt: Date.now() - 86400000 * 7,
+    updatedAt: Date.now() - 86400000 * 2,
+    coverStyle: {
+      texture: 'leather-cognac',
+      goldFoil: true,
+      ribbonColor: '#ef4444',
+    },
+    chapters: [
+      {
+        id: 'chap_v1',
+        title: 'अध्याय 1: घाटों की शाम',
+        order: 1,
+        content: `<p>दशाश्वमेध घाट पर आरती की घंटियों की गूंज गंगा के जल पर तैर रही थी। कबीर ने अपनी नाव को किनारे से बांधा और पुरानी डायरी निकाली।</p>`,
+        wordCount: 32,
+        status: 'draft',
+      },
+    ],
+    characters: [],
+    outlineNotes: '',
+  },
 ];
 
 export default function App() {
   // Persistence state
   const [entries, setEntries] = useState<DiaryEntry[]>(() => {
     try {
-      const saved = localStorage.getItem('telenotes_entries_v2');
+      const saved = localStorage.getItem('telenotes_entries_v3');
       return saved ? JSON.parse(saved) : STARTER_DIARIES;
     } catch {
       return STARTER_DIARIES;
@@ -177,7 +209,7 @@ export default function App() {
 
   const [books, setBooks] = useState<BookProject[]>(() => {
     try {
-      const saved = localStorage.getItem('telenotes_books_v2');
+      const saved = localStorage.getItem('telenotes_books_v3');
       return saved ? JSON.parse(saved) : STARTER_BOOKS;
     } catch {
       return STARTER_BOOKS;
@@ -186,28 +218,27 @@ export default function App() {
 
   const [folders, setFolders] = useState<Folder[]>(() => {
     try {
-      const saved = localStorage.getItem('telenotes_folders_v2');
+      const saved = localStorage.getItem('telenotes_folders_v3');
       return saved ? JSON.parse(saved) : DEFAULT_FOLDERS;
     } catch {
       return DEFAULT_FOLDERS;
     }
   });
 
-  const [todos, setTodos] = useState<TodoItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('telenotes_todos_v2');
-      return saved ? JSON.parse(saved) : DEFAULT_TODOS;
-    } catch {
-      return DEFAULT_TODOS;
-    }
-  });
-
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
-      const saved = localStorage.getItem('telenotes_settings_v2');
+      const saved = localStorage.getItem('telenotes_settings_v3');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return { ...INITIAL_SETTINGS, ...parsed, security: { ...INITIAL_SETTINGS.security, ...parsed.security, isSetupDone: true } };
+        return {
+          ...INITIAL_SETTINGS,
+          ...parsed,
+          security: {
+            ...INITIAL_SETTINGS.security,
+            ...parsed.security,
+            isSetupDone: true,
+          },
+        };
       }
       return INITIAL_SETTINGS;
     } catch {
@@ -216,11 +247,19 @@ export default function App() {
   });
 
   // App Navigation & Active View
-  const [activeView, setActiveView] = useState<'feed' | 'diary' | 'bookStudio' | 'settings'>('feed');
+  // Initial landing page based on user setting (Requirement #3 & #4)
+  const [activeView, setActiveView] = useState<
+    'feed' | 'diary' | 'booksGallery' | 'bookStudio'
+  >(() => (settings.landingPage === 'books' ? 'booksGallery' : 'feed'));
+
   const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
+  const [selectedBook, setSelectedBook] = useState<BookProject | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string>('all');
 
-  // Security & Lock State (Default unlocked so user immediately sees their diaries!)
+  // Hamburger Settings Drawer state (Requirement #6)
+  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState<boolean>(false);
+
+  // Security & Lock State
   const [isLocked, setIsLocked] = useState<boolean>(false);
 
   // Notification State
@@ -239,7 +278,7 @@ export default function App() {
   // Save to local storage on changes
   useEffect(() => {
     try {
-      localStorage.setItem('telenotes_entries_v2', JSON.stringify(entries));
+      localStorage.setItem('telenotes_entries_v3', JSON.stringify(entries));
       setStorageBreakdown(calculateStorageBreakdown(entries, books));
     } catch (e) {
       console.error(e);
@@ -248,7 +287,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('telenotes_books_v2', JSON.stringify(books));
+      localStorage.setItem('telenotes_books_v3', JSON.stringify(books));
       setStorageBreakdown(calculateStorageBreakdown(entries, books));
     } catch (e) {
       console.error(e);
@@ -257,7 +296,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('telenotes_folders_v2', JSON.stringify(folders));
+      localStorage.setItem('telenotes_folders_v3', JSON.stringify(folders));
     } catch (e) {
       console.error(e);
     }
@@ -265,19 +304,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('telenotes_settings_v2', JSON.stringify(settings));
+      localStorage.setItem('telenotes_settings_v3', JSON.stringify(settings));
     } catch (e) {
       console.error(e);
     }
   }, [settings]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('telenotes_todos_v2', JSON.stringify(todos));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [todos]);
 
   // Activity tracking for auto-lock timer
   useEffect(() => {
@@ -289,7 +320,6 @@ export default function App() {
     window.addEventListener('keydown', updateActivity);
     window.addEventListener('touchstart', updateActivity);
 
-    // Auto-lock delay monitor
     const checkInterval = window.setInterval(() => {
       if (
         !isLocked &&
@@ -313,6 +343,32 @@ export default function App() {
     };
   }, [isLocked, settings.security]);
 
+  // Automated Backup Daemon (Requirement #7)
+  useEffect(() => {
+    const backupInterval = settings.autoBackup?.interval || 'daily';
+    if (backupInterval === 'off') return;
+
+    let intervalMs = 86400000; // 24 hours
+    if (backupInterval === '6h') intervalMs = 21600000;
+    if (backupInterval === 'weekly') intervalMs = 604800000;
+
+    const lastBackup = settings.autoBackup?.lastBackupTimestamp || 0;
+    if (Date.now() - lastBackup > intervalMs) {
+      const secret = settings.security.masterKeyHint || 'telenotes_vault_key';
+      saveHiddenVaultBackup(entries, books, settings, secret).then((saved) => {
+        if (saved) {
+          setSettings((prev) => ({
+            ...prev,
+            autoBackup: {
+              ...prev.autoBackup,
+              lastBackupTimestamp: Date.now(),
+            },
+          }));
+        }
+      });
+    }
+  }, [entries, books, settings.autoBackup]);
+
   // Reminder Notification Daemon
   useEffect(() => {
     const reminderChecker = window.setInterval(() => {
@@ -323,13 +379,11 @@ export default function App() {
           !entry.reminder.isTriggered &&
           entry.reminder.dueTimestamp <= now
         ) {
-          // Trigger reminder
           setActiveNotification({
             entry,
             title: `Reminder: ${entry.reminder.title || entry.title}`,
           });
 
-          // Mark triggered
           setEntries((prev) =>
             prev.map((e) =>
               e.id === entry.id && e.reminder
@@ -366,6 +420,18 @@ export default function App() {
     }
   };
 
+  const handleDuplicateDiary = (entry: DiaryEntry) => {
+    const duplicated: DiaryEntry = {
+      ...entry,
+      id: 'diary_' + Date.now(),
+      title: `${entry.title} (Copy)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      isPinned: false,
+    };
+    setEntries((prev) => [duplicated, ...prev]);
+  };
+
   const handleTogglePin = (id: string) => {
     setEntries((prev) =>
       prev.map((e) => (e.id === id ? { ...e, isPinned: !e.isPinned } : e))
@@ -385,9 +451,27 @@ export default function App() {
 
   const handleDeleteBook = (bookId: string) => {
     setBooks((prev) => prev.filter((b) => b.id !== bookId));
+    if (selectedBook?.id === bookId) {
+      setSelectedBook(null);
+      setActiveView('booksGallery');
+    }
   };
 
-  // Handlers for Folders
+  const handleDuplicateBook = (book: BookProject) => {
+    const duplicated: BookProject = {
+      ...book,
+      id: 'book_' + Date.now(),
+      title: `${book.title} (Copy)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      chapters: book.chapters.map((c) => ({
+        ...c,
+        id: 'chap_' + Math.random().toString(36).slice(2, 9),
+      })),
+    };
+    setBooks((prev) => [duplicated, ...prev]);
+  };
+
   const handleAddFolder = (name: string, icon: string) => {
     const newFolder: Folder = {
       id: 'fld_' + Date.now(),
@@ -399,27 +483,6 @@ export default function App() {
     setActiveFolderId(newFolder.id);
   };
 
-  // Handlers for Todos
-  const handleAddTodo = (text: string) => {
-    const newTodo: TodoItem = {
-      id: 'td_' + Date.now(),
-      text,
-      done: false,
-    };
-    setTodos((prev) => [newTodo, ...prev]);
-  };
-
-  const handleToggleTodo = (id: string) => {
-    setTodos((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
-    );
-  };
-
-  const handleDeleteTodo = (id: string) => {
-    setTodos((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  // Handlers for Restore Data
   const handleRestoreData = (restored: {
     entries?: DiaryEntry[];
     books?: BookProject[];
@@ -430,9 +493,14 @@ export default function App() {
     if (restored.settings) setSettings(restored.settings);
   };
 
+  const currentMode =
+    activeView === 'booksGallery' || activeView === 'bookStudio'
+      ? 'books'
+      : 'diary';
+
   return (
-    <AndroidContainer theme={settings.theme}>
-      {/* Reminder Floating Chat Banner */}
+    <AndroidContainer theme={settings.theme} customTheme={settings.customTheme}>
+      {/* Reminder Floating Banner */}
       {activeNotification && (
         <NotificationBanner
           notification={activeNotification}
@@ -455,19 +523,19 @@ export default function App() {
           onUnlock={() => setIsLocked(false)}
           onResetPasscode={() => {
             setIsLocked(false);
-            setActiveView('settings');
+            setIsSettingsDrawerOpen(true);
           }}
         />
       ) : (
         /* Main Application Router */
-        <>
+        <div className="flex-1 flex flex-col w-full h-full relative overflow-hidden">
+          {/* DIARY HOMEPAGE (Telegram Feed) */}
           {activeView === 'feed' && (
             <TelegramFeed
               entries={entries}
               folders={folders}
               activeFolderId={activeFolderId}
               settings={settings}
-              todos={todos}
               onSelectEntry={(entry) => {
                 setSelectedEntry(entry);
                 setActiveView('diary');
@@ -476,24 +544,23 @@ export default function App() {
                 setSelectedEntry(null);
                 setActiveView('diary');
               }}
-              onOpenBookStudio={() => setActiveView('bookStudio')}
               onLockApp={() => setIsLocked(true)}
-              onOpenSettings={() => setActiveView('settings')}
+              onOpenSettings={() => setIsSettingsDrawerOpen(true)}
               onTogglePin={handleTogglePin}
               onDeleteEntry={handleDeleteDiary}
+              onDuplicateEntry={handleDuplicateDiary}
               onChangeFolder={setActiveFolderId}
               onAddFolder={handleAddFolder}
-              onAddTodo={handleAddTodo}
-              onToggleTodo={handleToggleTodo}
-              onDeleteTodo={handleDeleteTodo}
             />
           )}
 
+          {/* DIARY CANVAS */}
           {activeView === 'diary' && (
             <DiaryCanvas
               entry={selectedEntry}
               folders={folders}
               currentFolderId={activeFolderId}
+              settings={settings}
               onSave={handleSaveDiary}
               onBack={() => {
                 setActiveView('feed');
@@ -502,27 +569,58 @@ export default function App() {
             />
           )}
 
-          {activeView === 'bookStudio' && (
-            <BookStudio
+          {/* BOOKS HOMEPAGE (2x2 Grid) */}
+          {activeView === 'booksGallery' && (
+            <BooksGallery
               books={books}
-              onSaveBook={handleSaveBook}
+              settings={settings}
+              onSelectBook={(book) => {
+                setSelectedBook(book);
+                setActiveView('bookStudio');
+              }}
+              onCreateBook={handleSaveBook}
               onDeleteBook={handleDeleteBook}
-              onBack={() => setActiveView('feed')}
+              onDuplicateBook={handleDuplicateBook}
+              onUpdateBook={handleSaveBook}
+              onLockApp={() => setIsLocked(true)}
+              onOpenSettings={() => setIsSettingsDrawerOpen(true)}
             />
           )}
 
-          {activeView === 'settings' && (
+          {/* BOOKS WRITING STUDIO CANVAS */}
+          {activeView === 'bookStudio' && selectedBook && (
+            <BookStudio
+              book={selectedBook}
+              settings={settings}
+              onSaveBook={handleSaveBook}
+              onBack={() => {
+                setActiveView('booksGallery');
+                setSelectedBook(null);
+              }}
+            />
+          )}
+
+          {/* SLIDING HAMBURGER SETTINGS DRAWER (Requirements #5 & #6) */}
+          {isSettingsDrawerOpen && (
             <SettingsModal
               settings={settings}
               storageBreakdown={storageBreakdown}
               entries={entries}
               books={books}
+              currentMode={currentMode}
+              onSwitchMode={(newMode) => {
+                if (newMode === 'books') {
+                  setActiveView('booksGallery');
+                } else {
+                  setActiveView('feed');
+                }
+              }}
               onUpdateSettings={setSettings}
               onRestoreData={handleRestoreData}
-              onClose={() => setActiveView('feed')}
+              onClose={() => setIsSettingsDrawerOpen(false)}
             />
           )}
-        </>
+        </div>
       )}
     </AndroidContainer>
   );

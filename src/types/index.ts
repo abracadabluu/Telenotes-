@@ -1,9 +1,3 @@
-export interface TodoItem {
-  id: string;
-  text: string;
-  done: boolean;
-}
-
 export interface AudioRecording {
   id: string;
   url: string; // base64 or blob url
@@ -20,14 +14,19 @@ export interface CanvasSticker {
   y: number;
   scale: number;
   rotation: number;
+  isGif?: boolean;
 }
 
 export interface MediaAttachment {
   id: string;
   name: string;
   url: string;
-  type: string; // image/png, audio/mp3, etc.
+  type: string; // image/png, image/gif, audio/mp3, etc.
   size: number;
+  layoutMode?: 'inline' | 'floating' | 'banner';
+  x?: number;
+  y?: number;
+  width?: number;
 }
 
 export interface EntryReminder {
@@ -35,6 +34,11 @@ export interface EntryReminder {
   title: string;
   isTriggered: boolean;
   repeat?: 'none' | 'daily' | 'weekly';
+}
+
+export interface CanvasBackground {
+  url: string;
+  opacity: number; // 0.05 to 1.0
 }
 
 export interface DiaryEntry {
@@ -51,10 +55,11 @@ export interface DiaryEntry {
   };
   folderId: string;
   isPinned: boolean;
-  todos: TodoItem[];
+  mood?: string;
   audioRecordings: AudioRecording[];
   stickers: CanvasSticker[];
   attachments: MediaAttachment[];
+  canvasBackground?: CanvasBackground;
   reminder?: EntryReminder;
   tags: string[];
   fontFamily?: string;
@@ -79,19 +84,36 @@ export interface BookCharacter {
   avatar?: string;
 }
 
+export type BookCoverTexture = 
+  | 'leather-classic'
+  | 'leather-dark'
+  | 'leather-cognac'
+  | 'leather-forest'
+  | 'leather-crimson'
+  | 'custom-image';
+
+export interface BookCoverStyle {
+  texture: BookCoverTexture;
+  color?: string;
+  goldFoil?: boolean;
+  ribbonColor?: string;
+  customCoverUrl?: string;
+}
+
 export interface BookProject {
   id: string;
   title: string;
   subtitle?: string;
   author: string;
-  coverImage?: string;
   genre: string;
   targetWords: number;
   createdAt: number;
   updatedAt: number;
+  coverStyle?: BookCoverStyle;
   chapters: BookChapter[];
   characters: BookCharacter[];
   outlineNotes: string;
+  canvasBackground?: CanvasBackground;
 }
 
 export interface Folder {
@@ -104,29 +126,45 @@ export interface Folder {
 
 export type ThemeId =
   | 'telegram-dark'
-  | 'telegram-light'
-  | 'amoled'
-  | 'material-green'
-  | 'sunset'
-  | 'cyber-teal';
+  | 'midnight-onyx'
+  | 'emerald-forest'
+  | 'cyberpunk-violet'
+  | 'sepia-paper'
+  | 'minimal-light'
+  | 'custom';
 
 export type AppIconId = 'classic' | 'dark' | 'gold' | 'ruby' | 'emerald';
 
 export interface CustomFont {
   id: string;
   name: string;
-  dataUrl: string;
+  dataUrl?: string;
   fontFamily: string;
+  language: 'en' | 'hi' | 'both';
 }
 
 export interface AppSettings {
+  landingPage: 'diary' | 'books';
   theme: ThemeId;
+  customTheme?: {
+    accentColor: string;
+    bgColor: string;
+    surfaceColor: string;
+  };
   appIcon: AppIconId;
-  chatListConfig: {
-    previewLines: 1 | 2 | 3;
-    showTimestamp: boolean;
-    showActionButtons: boolean;
+  activeFontFamily: string;
+  toolbarPosition: 'bottom' | 'top';
+  diaryFeedConfig: {
+    showTagsBar: boolean;
+    snippetPreview: boolean;
+    showDate: boolean;
+    showWordCount: boolean;
+    showMediaCount: boolean;
     compactMode: boolean;
+  };
+  booksGridConfig: {
+    showWordGoal: boolean;
+    showGenreBadge: boolean;
   };
   security: {
     isPasscodeEnabled: boolean;
@@ -137,13 +175,15 @@ export interface AppSettings {
     isSetupDone: boolean;
     masterKeyHash: string;
     masterKeyHint?: string;
+    recoveryPhrase?: string;
+  };
+  autoBackup: {
+    interval: 'off' | '6h' | 'daily' | 'weekly';
+    lastBackupTimestamp?: number;
+    hiddenVaultKey?: string;
+    cloudSyncEnabled?: boolean;
   };
   customFonts: CustomFont[];
-  driveBackupStatus?: {
-    lastSynced?: number;
-    accountEmail?: string;
-    autoSync: boolean;
-  };
 }
 
 export interface StorageBreakdown {

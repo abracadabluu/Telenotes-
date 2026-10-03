@@ -6,12 +6,7 @@ import {
   Italic,
   Underline,
   Strikethrough,
-  Heading1,
-  Heading2,
-  List,
-  ListOrdered,
-  CheckSquare,
-  Quote,
+  Highlighter,
   Code,
   Link as LinkIcon,
   Smile,
@@ -23,35 +18,71 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  Highlighter,
-  Upload,
-  Clock,
+  AlignJustify,
+  List,
+  ListOrdered,
+  Quote,
   Sparkles,
   X,
   Plus,
   Check,
-  Edit2,
-  Table as TableIcon,
+  Subscript,
+  Superscript,
+  ChevronDown,
+  Palette,
+  Sliders,
+  Maximize2,
+  Move,
+  CornerDownRight,
 } from 'lucide-react';
-import { DiaryEntry, AudioRecording, CanvasSticker, MediaAttachment, TodoItem, EntryReminder, Folder } from '../../types';
-import { PRESET_STICKERS, StickerDefinition } from './Stickers';
+import {
+  DiaryEntry,
+  AudioRecording,
+  CanvasSticker,
+  MediaAttachment,
+  EntryReminder,
+  Folder,
+  AppSettings,
+  CanvasBackground,
+} from '../../types';
+import { PRESET_STICKERS } from './Stickers';
 import { AudioRecorder, AudioPlayerItem } from './AudioRecorder';
-import { ImageEditorModal } from './ImageEditorModal';
 
 interface DiaryCanvasProps {
   entry?: DiaryEntry | null;
   folders: Folder[];
   currentFolderId: string;
+  settings: AppSettings;
   onSave: (entry: DiaryEntry) => void;
   onBack: () => void;
 }
 
-const EMOJI_AVATARS = ['📔', '✨', '☕', '🌿', '🌙', '🔥', '🚀', '💡', '🎨', '🎯', '🐱', '📖', '❤️', '💎', '🌸', '🌊'];
+const EMOJI_AVATARS = [
+  '📔', '✨', '☕', '🌿', '🌙', '🔥', '🚀', '💡',
+  '🎨', '🎯', '🐱', '📖', '❤️', '💎', '🌸', '🌊',
+];
+
+const HINDI_FONTS = [
+  { id: 'Poppins', name: 'Poppins (Modern Clean)' },
+  { id: 'Rozha One', name: 'Rozha One (Bold Headline)' },
+  { id: 'Noto Sans Devanagari', name: 'Noto Sans (Standard)' },
+  { id: 'Tiro Devanagari Hindi', name: 'Tiro Devanagari (Serif)' },
+  { id: 'Kalam', name: 'Kalam (Handwritten)' },
+  { id: 'Yatra One', name: 'Yatra One (Vintage Wooden)' },
+];
+
+const ENGLISH_FONTS = [
+  { id: 'Plus Jakarta Sans', name: 'Plus Jakarta Sans' },
+  { id: 'Outfit', name: 'Outfit' },
+  { id: 'Lora', name: 'Lora (Serif)' },
+  { id: 'JetBrains Mono', name: 'JetBrains Mono (Code)' },
+];
 
 export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
   entry,
   folders,
   currentFolderId,
+  settings,
   onSave,
   onBack,
 }) => {
@@ -59,41 +90,61 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
   const [content, setContent] = useState(entry?.content || '');
   const [folderId, setFolderId] = useState(entry?.folderId || currentFolderId || 'all');
   const [avatar, setAvatar] = useState(
-    entry?.avatar || { type: 'emoji' as const, value: '📔', bgColor: '#3b82f6' }
+    entry?.avatar || { type: 'emoji' as const, value: '📔', bgColor: '#0284c7' }
   );
 
-  const [audioRecordings, setAudioRecordings] = useState<AudioRecording[]>(entry?.audioRecordings || []);
+  const [audioRecordings, setAudioRecordings] = useState<AudioRecording[]>(
+    entry?.audioRecordings || []
+  );
   const [stickers, setStickers] = useState<CanvasSticker[]>(entry?.stickers || []);
-  const [attachments, setAttachments] = useState<MediaAttachment[]>(entry?.attachments || []);
+  const [attachments, setAttachments] = useState<MediaAttachment[]>(
+    entry?.attachments || []
+  );
   const [reminder, setReminder] = useState<EntryReminder | undefined>(entry?.reminder);
+  const [canvasBg, setCanvasBg] = useState<CanvasBackground | undefined>(
+    entry?.canvasBackground
+  );
 
-  const [fontFamily, setFontFamily] = useState(entry?.fontFamily || 'font-sans');
+  const [fontFamily, setFontFamily] = useState(
+    entry?.fontFamily || settings.activeFontFamily || 'Plus Jakarta Sans'
+  );
   const [fontSize, setFontSize] = useState(entry?.fontSize || 16);
 
-  // Modal & Drawer states
+  // Floating selection toolbar state
+  const [selectionRange, setSelectionRange] = useState<Range | null>(null);
+  const [floatingToolbarPos, setFloatingToolbarPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
+  // Active category popups in docked toolbar
+  const [activeCategory, setActiveCategory] = useState<
+    'align' | 'headings' | 'lists' | 'fonts' | 'background' | null
+  >(null);
+
+  // Modals & Drawers
   const [showStickerDrawer, setShowStickerDrawer] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
-  const [reminderDate, setReminderDate] = useState(
-    entry?.reminder
-      ? new Date(entry.reminder.dueTimestamp).toISOString().slice(0, 16)
-      : new Date(Date.now() + 3600000).toISOString().slice(0, 16)
-  );
-
-  const [editingImage, setEditingImage] = useState<string | null>(null);
   const [activeStickerId, setActiveStickerId] = useState<string | null>(null);
 
-  // Link dialog
+  // Sticker size control
+  const [stickerScale, setStickerScale] = useState<number>(1);
+
+  // Link Dialog
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
-  const [linkText, setLinkText] = useState('');
+
+  // Background Image customization state
+  const [bgImageUrl, setBgImageUrl] = useState(canvasBg?.url || '');
+  const [bgOpacity, setBgOpacity] = useState(canvasBg?.opacity || 0.25);
 
   const editorRef = useRef<HTMLDivElement | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const customStickerInputRef = useRef<HTMLInputElement | null>(null);
-  const customFontInputRef = useRef<HTMLInputElement | null>(null);
+  const stickerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const bgImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const createdAtTimestamp = entry?.createdAt || Date.now();
 
@@ -105,11 +156,43 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     }
   }, []);
 
-  // Format command exec
+  // Format document execCommand wrapper
   const formatDoc = (cmd: string, val: string | undefined = undefined) => {
     document.execCommand(cmd, false, val);
     if (editorRef.current) {
       setContent(editorRef.current.innerHTML);
+    }
+  };
+
+  // Text selection detector for floating toolbar
+  const handleSelectionCheck = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !editorRef.current) {
+      setFloatingToolbarPos(null);
+      setSelectionRange(null);
+      return;
+    }
+
+    if (editorRef.current.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const containerRect = canvasContainerRef.current?.getBoundingClientRect();
+
+      if (rect && containerRect) {
+        setSelectionRange(range);
+        setFloatingToolbarPos({
+          top: Math.max(10, rect.top - containerRect.top - 50),
+          left: Math.max(
+            10,
+            Math.min(
+              containerRect.width - 280,
+              rect.left - containerRect.left + rect.width / 2 - 140
+            )
+          ),
+        });
+      }
+    } else {
+      setFloatingToolbarPos(null);
     }
   };
 
@@ -119,169 +202,24 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     }
   };
 
-  // Insert link
-  const insertLink = () => {
-    if (!linkUrl) return;
-    const finalUrl = linkUrl.startsWith('http') ? linkUrl : `https://${linkUrl}`;
-    if (linkText) {
-      const linkHtml = `<a href="${finalUrl}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline;">${linkText}</a>`;
-      document.execCommand('insertHTML', false, linkHtml);
-    } else {
-      formatDoc('createLink', finalUrl);
-    }
-    setShowLinkDialog(false);
-    setLinkUrl('');
-    setLinkText('');
-    handleEditorInput();
-  };
-
-  // Insert Table
-  const insertTable = () => {
-    const tableHtml = `<table style="width: 100%; border-collapse: collapse; margin: 12px 0; border: 1px solid #475569;">
-      <thead>
-        <tr style="background: rgba(56, 189, 248, 0.15);">
-          <th style="border: 1px solid #475569; padding: 6px 10px;">Header 1</th>
-          <th style="border: 1px solid #475569; padding: 6px 10px;">Header 2</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td style="border: 1px solid #475569; padding: 6px 10px;">Item A</td>
-          <td style="border: 1px solid #475569; padding: 6px 10px;">Description</td>
-        </tr>
-      </tbody>
-    </table><p></p>`;
-    document.execCommand('insertHTML', false, tableHtml);
-    handleEditorInput();
-  };
-
-  // Sticker dragging
-  const handleStickerPointerDown = (e: React.PointerEvent, id: string) => {
-    e.stopPropagation();
-    setActiveStickerId(id);
-    const container = canvasContainerRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const sticker = stickers.find((s) => s.id === id);
-    if (!sticker) return;
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const initialStickerX = sticker.x;
-    const initialStickerY = sticker.y;
-
-    const handlePointerMove = (moveEvt: PointerEvent) => {
-      const deltaXPercent = ((moveEvt.clientX - startX) / rect.width) * 100;
-      const deltaYPercent = ((moveEvt.clientY - startY) / rect.height) * 100;
-
-      setStickers((prev) =>
-        prev.map((s) => {
-          if (s.id !== id) return s;
-          const nextX = Math.max(2, Math.min(88, initialStickerX + deltaXPercent));
-          const nextY = Math.max(2, Math.min(88, initialStickerY + deltaYPercent));
-          return { ...s, x: nextX, y: nextY };
-        })
-      );
-    };
-
-    const handlePointerUp = () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-  };
-
-  const handleAddSticker = (stDef: StickerDefinition) => {
-    const newSticker: CanvasSticker = {
-      id: 'stk_' + Date.now(),
-      stickerUrl: stDef.svgDataUri,
-      name: stDef.name,
-      x: 35 + Math.random() * 20,
-      y: 20 + Math.random() * 30,
-      scale: 1,
-      rotation: (Math.random() - 0.5) * 20,
-    };
-    setStickers((prev) => [...prev, newSticker]);
-    setShowStickerDrawer(false);
-  };
-
-  const handleAddCustomSticker = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const newSticker: CanvasSticker = {
-        id: 'stk_' + Date.now(),
-        stickerUrl: dataUrl,
-        name: file.name,
-        x: 40,
-        y: 30,
-        scale: 1,
-        rotation: 0,
-      };
-      setStickers((prev) => [...prev, newSticker]);
-      setShowStickerDrawer(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Image Upload
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const newAtt: MediaAttachment = {
-        id: 'att_' + Date.now(),
-        name: file.name,
-        url: dataUrl,
-        type: file.type || 'image/jpeg',
-        size: file.size,
-      };
-      setAttachments((prev) => [...prev, newAtt]);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Custom Font .ttf Upload
-  const handleFontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const fontUrl = reader.result as string;
-      const fontName = 'CustomFont_' + Date.now();
-      const newStyle = document.createElement('style');
-      newStyle.appendChild(
-        document.createTextNode(`@font-face { font-family: '${fontName}'; src: url('${fontUrl}'); }`)
-      );
-      document.head.appendChild(newStyle);
-      setFontFamily(fontName);
-    };
-    reader.readAsDataURL(file);
-  };
-
   // Save Entry
   const handleSave = () => {
-    const plainText = editorRef.current?.innerText || content.replace(/<[^>]*>?/gm, ' ');
-    const finalTitle = title.trim() || 'Untitled Diary Entry';
+    const plainText = editorRef.current?.innerText || '';
+    const finalTitle =
+      title.trim() ||
+      plainText.slice(0, 30).trim() ||
+      `Note ${new Date().toLocaleDateString()}`;
 
-    const savedEntry: DiaryEntry = {
+    const updatedEntry: DiaryEntry = {
       id: entry?.id || 'diary_' + Date.now(),
       title: finalTitle,
-      content,
+      content: editorRef.current?.innerHTML || content,
       plainText,
       createdAt: createdAtTimestamp,
       updatedAt: Date.now(),
       avatar,
       folderId,
       isPinned: entry?.isPinned || false,
-      todos: entry?.todos || [],
       audioRecordings,
       stickers,
       attachments,
@@ -289,83 +227,166 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
       tags: entry?.tags || [],
       fontFamily,
       fontSize,
+      canvasBackground: bgImageUrl
+        ? { url: bgImageUrl, opacity: bgOpacity }
+        : undefined,
     };
 
-    onSave(savedEntry);
+    onSave(updatedEntry);
   };
 
-  const formattedDate = new Date(createdAtTimestamp).toLocaleDateString([], {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-  const formattedTime = new Date(createdAtTimestamp).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  // Add Sticker / GIF (Gboard or file)
+  const handleAddSticker = (stickerUrl: string, name: string, isGif = false) => {
+    const newSticker: CanvasSticker = {
+      id: 'stk_' + Date.now(),
+      stickerUrl,
+      name,
+      x: 35 + Math.random() * 20,
+      y: 35 + Math.random() * 20,
+      scale: 1,
+      rotation: Math.floor(Math.random() * 16) - 8,
+      isGif,
+    };
+    setStickers([...stickers, newSticker]);
+    setActiveStickerId(newSticker.id);
+    setShowStickerDrawer(false);
+  };
+
+  // Upload custom sticker / GIF
+  const handleCustomStickerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isGif = file.type === 'image/gif';
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const url = event.target?.result as string;
+      handleAddSticker(url, file.name.slice(0, 12), isGif);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Upload Canvas Background Image
+  const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const url = event.target?.result as string;
+      setBgImageUrl(url);
+      setCanvasBg({ url, opacity: bgOpacity });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Update Sticker Scale
+  const handleUpdateStickerScale = (newScale: number) => {
+    if (!activeStickerId) return;
+    setStickers(
+      stickers.map((s) => (s.id === activeStickerId ? { ...s, scale: newScale } : s))
+    );
+  };
+
+  // Delete Active Sticker
+  const handleDeleteActiveSticker = () => {
+    if (!activeStickerId) return;
+    setStickers(stickers.filter((s) => s.id !== activeStickerId));
+    setActiveStickerId(null);
+  };
+
+  // Word count & Read time
+  const plainText = editorRef.current?.innerText || '';
+  const wordCount = plainText.trim()
+    ? plainText.trim().split(/\s+/).filter(Boolean).length
+    : 0;
+
+  const isToolbarTop = settings.toolbarPosition === 'top';
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-100 select-none overflow-hidden relative">
-      {/* Canvas Top Bar */}
-      <div className="flex items-center justify-between px-3 py-2.5 bg-slate-950/80 border-b border-slate-800/80 backdrop-blur-md z-30 shrink-0">
+    <div
+      ref={canvasContainerRef}
+      onMouseUp={handleSelectionCheck}
+      onTouchEnd={handleSelectionCheck}
+      className="flex flex-col h-full bg-slate-950 text-slate-100 select-none overflow-hidden relative"
+      style={{ fontFamily }}
+    >
+      {/* Custom Background Image with Transparency (Requirement #13) */}
+      {bgImageUrl && (
+        <div
+          className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-300"
+          style={{
+            backgroundImage: `url(${bgImageUrl})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            opacity: bgOpacity,
+          }}
+        />
+      )}
+
+      {/* Top Header Bar */}
+      <div className="px-4 py-3 bg-slate-950/85 border-b border-slate-800/80 backdrop-blur-md z-30 shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
-            type="button"
-            onClick={onBack}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors"
+            onClick={() => {
+              handleSave();
+              onBack();
+            }}
+            className="p-1.5 rounded-full text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Save & Back"
           >
-            <ArrowLeft size={19} />
+            <ArrowLeft size={20} />
           </button>
 
-          {/* Avatar selector button */}
+          {/* Emoji Avatar Picker */}
           <button
-            type="button"
-            onClick={() => setShowAvatarPicker(true)}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-lg bg-sky-600/30 border border-sky-400/40 hover:scale-105 transition-transform"
-            title="Choose Diary Profile Icon"
+            onClick={() => setShowAvatarPicker(!showAvatarPicker)}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-base border border-white/20 transition-transform active:scale-95 shadow-sm"
+            style={{ backgroundColor: avatar.bgColor || '#0284c7' }}
           >
-            {avatar.type === 'image' ? (
-              <img src={avatar.value} alt="Avatar" className="w-full h-full object-cover rounded-full" />
-            ) : (
-              <span>{avatar.value}</span>
-            )}
+            <span>{avatar.value}</span>
           </button>
 
-          {/* Folder selector pill */}
-          <select
-            value={folderId}
-            onChange={(e) => setFolderId(e.target.value)}
-            className="bg-slate-800 border border-slate-700 text-xs rounded-lg px-2 py-1 text-slate-200 outline-none hover:bg-slate-750"
-          >
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.icon} {f.name}
-              </option>
-            ))}
-          </select>
+          {/* Title input */}
+          <input
+            type="text"
+            placeholder="Title of this entry..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="bg-transparent text-sm font-semibold text-white placeholder-slate-500 focus:outline-none max-w-[150px] sm:max-w-xs"
+          />
         </div>
 
+        {/* Right Action Icons */}
         <div className="flex items-center gap-1.5">
-          {/* Reminder button */}
+          {/* Word Count Pill */}
+          <span className="text-[11px] text-slate-400 font-mono hidden sm:inline px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+            {wordCount} words
+          </span>
+
+          {/* Stickers Button */}
           <button
-            type="button"
-            onClick={() => setShowReminderPicker(true)}
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-              reminder
-                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-            title="Set Reminder Notification"
+            onClick={() => setShowStickerDrawer(true)}
+            className="p-2 text-slate-300 hover:text-amber-400 hover:bg-slate-800 rounded-full transition-colors"
+            title="Add Stickers & GIFs"
           >
-            <Bell size={18} />
+            <Smile size={19} />
           </button>
 
-          {/* Primary Save CTA */}
+          {/* Audio Voice Note Button */}
           <button
-            type="button"
-            onClick={handleSave}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-xl text-xs font-semibold shadow-md active:scale-95 transition-all"
+            onClick={() => setShowAudioRecorder(true)}
+            className="p-2 text-slate-300 hover:text-emerald-400 hover:bg-slate-800 rounded-full transition-colors"
+            title="Record Voice Note"
+          >
+            <Mic size={19} />
+          </button>
+
+          {/* Save Button */}
+          <button
+            onClick={() => {
+              handleSave();
+              onBack();
+            }}
+            className="px-3.5 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all active:scale-95"
           >
             <Save size={15} />
             <span>Save</span>
@@ -373,593 +394,705 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         </div>
       </div>
 
-      {/* Formatting & Media Toolbar */}
-      <div className="flex items-center gap-1 px-3 py-1.5 bg-slate-950/60 border-b border-slate-800/60 overflow-x-auto text-slate-300 text-xs shrink-0 scrollbar-none">
-        {/* Text styling */}
-        <button
-          type="button"
-          onClick={() => formatDoc('bold')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center font-bold"
-          title="Bold (Ctrl+B)"
-        >
-          <Bold size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('italic')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center italic"
-          title="Italic (Ctrl+I)"
-        >
-          <Italic size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('underline')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center underline"
-          title="Underline (Ctrl+U)"
-        >
-          <Underline size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('strikeThrough')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center line-through"
-          title="Strikethrough"
-        >
-          <Strikethrough size={15} />
-        </button>
+      {/* TOP DOCKED TOOLBAR (When configured in Settings) */}
+      {isToolbarTop && (
+        <div className="px-3 py-1.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between z-20 overflow-x-auto no-scrollbar gap-1 text-xs">
+          {/* Categories Rendered */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() =>
+                setActiveCategory(activeCategory === 'align' ? null : 'align')
+              }
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 border transition-colors ${
+                activeCategory === 'align'
+                  ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                  : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <AlignLeft size={14} />
+              <span>Align</span>
+            </button>
 
-        <span className="w-px h-4 bg-slate-700/80 mx-1 shrink-0" />
+            <button
+              onClick={() =>
+                setActiveCategory(activeCategory === 'headings' ? null : 'headings')
+              }
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 border transition-colors ${
+                activeCategory === 'headings'
+                  ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                  : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Type size={14} />
+              <span>Headings</span>
+            </button>
 
-        {/* Headings */}
-        <button
-          type="button"
-          onClick={() => formatDoc('formatBlock', '<h1>')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Heading 1"
-        >
-          <Heading1 size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('formatBlock', '<h2>')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Heading 2"
-        >
-          <Heading2 size={15} />
-        </button>
+            <button
+              onClick={() =>
+                setActiveCategory(activeCategory === 'lists' ? null : 'lists')
+              }
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 border transition-colors ${
+                activeCategory === 'lists'
+                  ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                  : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <List size={14} />
+              <span>Lists</span>
+            </button>
 
-        <span className="w-px h-4 bg-slate-700/80 mx-1 shrink-0" />
+            <button
+              onClick={() =>
+                setActiveCategory(activeCategory === 'fonts' ? null : 'fonts')
+              }
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 border transition-colors ${
+                activeCategory === 'fonts'
+                  ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                  : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <span>{fontFamily.split(' ')[0]}</span>
+              <ChevronDown size={12} />
+            </button>
 
-        {/* Font Family selector & TTF loader */}
-        <select
-          value={fontFamily}
-          onChange={(e) => setFontFamily(e.target.value)}
-          className="bg-slate-800 border border-slate-700 text-[11px] rounded px-1.5 py-0.5 text-slate-200 outline-none shrink-0"
-        >
-          <option value="font-sans">Modern Sans</option>
-          <option value="font-serif">Literary Serif</option>
-          <option value="font-mono">Monospace</option>
-          <option value="'Noto Sans Devanagari', sans-serif">Hindi / Devanagari</option>
-          {fontFamily.startsWith('CustomFont_') && <option value={fontFamily}>Loaded Custom TTF</option>}
-        </select>
-
-        <button
-          type="button"
-          onClick={() => customFontInputRef.current?.click()}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-sky-400 shrink-0"
-          title="Upload .TTF Custom Font"
-        >
-          <Type size={15} />
-        </button>
-        <input
-          type="file"
-          ref={customFontInputRef}
-          accept=".ttf,.otf,.woff,.woff2"
-          onChange={handleFontUpload}
-          className="hidden"
-        />
-
-        <span className="w-px h-4 bg-slate-700/80 mx-1 shrink-0" />
-
-        {/* Alignment */}
-        <button
-          type="button"
-          onClick={() => formatDoc('justifyLeft')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Align Left"
-        >
-          <AlignLeft size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('justifyCenter')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Align Center"
-        >
-          <AlignCenter size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('justifyRight')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Align Right"
-        >
-          <AlignRight size={15} />
-        </button>
-
-        <span className="w-px h-4 bg-slate-700/80 mx-1 shrink-0" />
-
-        {/* Hyperlink */}
-        <button
-          type="button"
-          onClick={() => setShowLinkDialog(true)}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center text-sky-400"
-          title="Insert Web Link"
-        >
-          <LinkIcon size={15} />
-        </button>
-
-        {/* Lists & Quotes */}
-        <button
-          type="button"
-          onClick={() => formatDoc('insertUnorderedList')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Bulleted List"
-        >
-          <List size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('insertOrderedList')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Numbered List"
-        >
-          <ListOrdered size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => formatDoc('formatBlock', '<blockquote>')}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Quote Block"
-        >
-          <Quote size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={insertTable}
-          className="w-7 h-7 rounded hover:bg-slate-800 flex items-center justify-center"
-          title="Insert Table"
-        >
-          <TableIcon size={15} />
-        </button>
-
-        <span className="w-px h-4 bg-slate-700/80 mx-1 shrink-0" />
-
-        {/* Media Shortcuts */}
-        <button
-          type="button"
-          onClick={() => setShowStickerDrawer(true)}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 shrink-0"
-          title="Telegram Stickers"
-        >
-          <Smile size={14} />
-          <span>Stickers</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 shrink-0"
-          title="Add Photo"
-        >
-          <ImageIcon size={14} />
-          <span>Photo</span>
-        </button>
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept="image/*"
-          onChange={handleImageUpload}
-          className="hidden"
-        />
-
-        <button
-          type="button"
-          onClick={() => setShowAudioRecorder(true)}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 shrink-0"
-          title="Record Voice Memo"
-        >
-          <Mic size={14} />
-          <span>Voice</span>
-        </button>
-      </div>
-
-      {/* Main Canvas Scrollable Area */}
-      <div
-        ref={canvasContainerRef}
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-4 relative"
-        style={{
-          fontFamily: fontFamily.startsWith('font-') ? undefined : fontFamily,
-        }}
-      >
-        {/* Creation Date & Time in Corner (User requested corner display) */}
-        <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800/60 pb-2">
-          <div className="flex items-center gap-1.5 font-medium">
-            <Clock size={13} className="text-sky-400" />
-            <span>{formattedDate}</span>
-            <span aria-hidden="true">·</span>
-            <span>{formattedTime}</span>
+            <button
+              onClick={() =>
+                setActiveCategory(
+                  activeCategory === 'background' ? null : 'background'
+                )
+              }
+              className={`px-2.5 py-1 rounded-lg flex items-center gap-1 border transition-colors ${
+                activeCategory === 'background'
+                  ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                  : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Palette size={14} />
+              <span>Canvas BG</span>
+            </button>
           </div>
-          <span className="text-[11px] text-slate-500">Encrypted Local Vault</span>
         </div>
+      )}
 
-        {/* Heading Box (User requested heading box at top) */}
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Diary Heading / Title..."
-          className="w-full bg-transparent text-xl md:text-2xl font-bold text-white placeholder-slate-500 focus:outline-none border-b border-transparent focus:border-sky-500/40 pb-1 transition-colors"
-        />
-
-        {/* Audio Memo Drawer/Player Area if any */}
-        {showAudioRecorder && (
-          <AudioRecorder
-            onSaveRecording={(rec) => {
-              setAudioRecordings((prev) => [...prev, rec]);
-              setShowAudioRecorder(false);
-            }}
-            onCancel={() => setShowAudioRecorder(false)}
-          />
-        )}
-
+      {/* Main Rich Canvas Area */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 relative z-10 flex flex-col">
+        {/* Audio Recordings Carousel (if any recorded) */}
         {audioRecordings.length > 0 && (
-          <div className="space-y-2">
-            {audioRecordings.map((rec) => (
-              <AudioPlayerItem
-                key={rec.id}
-                recording={rec}
-                onDelete={() => setAudioRecordings((prev) => prev.filter((r) => r.id !== rec.id))}
-              />
-            ))}
+          <div className="mb-4 space-y-2">
+            <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">
+              🎙️ Voice Memos ({audioRecordings.length})
+            </span>
+            <div className="space-y-1.5">
+              {audioRecordings.map((rec) => (
+                <AudioPlayerItem
+                  key={rec.id}
+                  recording={rec}
+                  onDelete={() =>
+                    setAudioRecordings(audioRecordings.filter((r) => r.id !== rec.id))
+                  }
+                />
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Media Attachments & Photos */}
-        {attachments.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 py-2">
-            {attachments.map((att) => (
-              <div
-                key={att.id}
-                className="relative group rounded-xl overflow-hidden border border-slate-700/80 bg-slate-950 aspect-video flex items-center justify-center shadow-lg"
-              >
-                <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingImage(att.url)}
-                    className="p-2 bg-sky-600/90 text-white rounded-lg hover:bg-sky-500 shadow-md transition-transform active:scale-95"
-                    title="Edit in Photo Studio"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== att.id))}
-                    className="p-2 bg-rose-600/90 text-white rounded-lg hover:bg-rose-500 shadow-md transition-transform active:scale-95"
-                    title="Remove Photo"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Rich Text Writing Content Area */}
+        {/* ContentEditable Editor */}
         <div
           ref={editorRef}
           contentEditable
+          suppressContentEditableWarning
           onInput={handleEditorInput}
-          className={`min-h-[220px] outline-none text-slate-200 leading-relaxed space-y-3 prose prose-invert max-w-none ${fontFamily}`}
+          onBlur={handleEditorInput}
+          data-placeholder="Start typing your thoughts, memories, stories..."
+          className="flex-1 min-h-[300px] focus:outline-none text-slate-200 leading-relaxed text-base max-w-2xl mx-auto w-full empty:before:content-[attr(data-placeholder)] empty:before:text-slate-600 empty:before:pointer-events-none"
           style={{ fontSize: `${fontSize}px` }}
-          data-placeholder="Start writing your thoughts, reflections, or daily notes..."
         />
 
-
-        {/* Freeform Draggable Canvas Stickers Layer */}
+        {/* Borderless Floating Stickers & GIFs (Requirement #10) */}
         {stickers.map((stk) => (
           <div
             key={stk.id}
-            onPointerDown={(e) => handleStickerPointerDown(e, stk.id)}
-            className={`absolute cursor-move select-none touch-none transition-shadow ${
-              activeStickerId === stk.id ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-slate-900 z-40' : 'z-20'
+            onClick={() => setActiveStickerId(stk.id)}
+            className={`absolute cursor-move select-none transition-transform z-20 ${
+              activeStickerId === stk.id ? 'ring-2 ring-sky-400 rounded-lg p-1' : ''
             }`}
             style={{
-              left: `${stk.x}%`,
               top: `${stk.y}%`,
-              transform: `translate(-50%, -50%) rotate(${stk.rotation}deg) scale(${stk.scale})`,
+              left: `${stk.x}%`,
+              transform: `scale(${stk.scale || 1}) rotate(${stk.rotation || 0}deg)`,
             }}
           >
-            <div className="relative group">
-              <img
-                src={stk.stickerUrl}
-                alt={stk.name}
-                className="w-16 h-16 pointer-events-none drop-shadow-xl animate-sticker-float"
-              />
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setStickers((prev) => prev.filter((s) => s.id !== stk.id));
-                }}
-                className="absolute -top-2 -right-2 w-5 h-5 bg-rose-600 hover:bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
-              >
-                <X size={11} />
-              </button>
-            </div>
+            <img
+              src={stk.stickerUrl}
+              alt={stk.name}
+              className="max-w-[120px] max-h-[120px] object-contain drop-shadow-md pointer-events-none"
+            />
           </div>
         ))}
       </div>
 
-      {/* Reminder Scheduler Modal */}
-      {showReminderPicker && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bell size={18} className="text-amber-400" />
-                <h3 className="text-sm font-semibold text-slate-100">Set Diary Reminder</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowReminderPicker(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-400">
-              You will receive a chat-style notification when this diary reflection is due.
-            </p>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-medium text-slate-400">Notification Time</label>
-              <input
-                type="datetime-local"
-                value={reminderDate}
-                onChange={(e) => setReminderDate(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              {reminder && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReminder(undefined);
-                    setShowReminderPicker(false);
-                  }}
-                  className="px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300"
-                >
-                  Clear Reminder
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  const due = new Date(reminderDate).getTime();
-                  if (!isNaN(due)) {
-                    setReminder({
-                      dueTimestamp: due,
-                      title: title || 'Diary Reminder',
-                      isTriggered: false,
-                    });
-                  }
-                  setShowReminderPicker(false);
-                }}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-xl shadow-md"
-              >
-                Set Reminder
-              </button>
-            </div>
+      {/* Active Sticker Size & Delete Toolbar */}
+      {activeStickerId && (
+        <div className="px-4 py-2 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between z-30 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400">Sticker Size:</span>
+            <input
+              type="range"
+              min={0.5}
+              max={2.5}
+              step={0.1}
+              value={
+                stickers.find((s) => s.id === activeStickerId)?.scale || 1
+              }
+              onChange={(e) => handleUpdateStickerScale(parseFloat(e.target.value))}
+              className="w-24 accent-sky-500 cursor-pointer"
+            />
           </div>
+          <button
+            onClick={handleDeleteActiveSticker}
+            className="px-2 py-1 bg-rose-900/40 text-rose-300 rounded hover:bg-rose-900/70 flex items-center gap-1"
+          >
+            <Trash2 size={13} />
+            <span>Remove</span>
+          </button>
         </div>
       )}
 
-      {/* Avatar Picker Modal */}
-      {showAvatarPicker && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-100">Choose Diary Avatar</h3>
+      {/* FLOATING TEXT SELECTION TOOLBAR (Requirement #10) */}
+      {floatingToolbarPos && (
+        <div
+          style={{
+            top: `${floatingToolbarPos.top}px`,
+            left: `${floatingToolbarPos.left}px`,
+          }}
+          className="absolute z-40 bg-slate-900 border border-slate-700/80 shadow-2xl rounded-xl p-1.5 flex items-center gap-1 text-slate-200 backdrop-blur-md animate-fadeIn"
+        >
+          <button
+            onClick={() => formatDoc('bold')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-200 hover:text-white"
+            title="Bold"
+          >
+            <Bold size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('italic')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-200 hover:text-white"
+            title="Italic"
+          >
+            <Italic size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('underline')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-200 hover:text-white"
+            title="Underline"
+          >
+            <Underline size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('strikeThrough')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-200 hover:text-white"
+            title="Strikethrough"
+          >
+            <Strikethrough size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('hiliteColor', '#fef08a')}
+            className="p-1.5 hover:bg-slate-800 rounded text-amber-300 hover:text-amber-200"
+            title="Highlight / Mark"
+          >
+            <Highlighter size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('subscript')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-300"
+            title="Subscript"
+          >
+            <Subscript size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('superscript')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-300"
+            title="Superscript"
+          >
+            <Superscript size={15} />
+          </button>
+          <button
+            onClick={() => formatDoc('formatBlock', 'pre')}
+            className="p-1.5 hover:bg-slate-800 rounded text-slate-300"
+            title="Monospace Code"
+          >
+            <Code size={15} />
+          </button>
+          <button
+            onClick={() => {
+              const url = prompt('Enter Web Link URL:');
+              if (url) formatDoc('createLink', url);
+            }}
+            className="p-1.5 hover:bg-slate-800 rounded text-sky-400"
+            title="Create Link"
+          >
+            <LinkIcon size={15} />
+          </button>
+        </div>
+      )}
+
+      {/* DOCKED FORMATTING CATEGORY POPUP CONTENT */}
+      {activeCategory && (
+        <div className="bg-slate-900 border-t border-slate-800 p-3 z-30 animate-slideDown shadow-xl text-xs">
+          {/* Universal Click-Outside Dismissal (Requirement #8) */}
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+            <span className="font-semibold text-slate-300 capitalize">
+              {activeCategory} Options
+            </span>
+            <button
+              onClick={() => setActiveCategory(null)}
+              className="p-1 rounded text-slate-400 hover:text-white"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* 1. Alignment & Spacing */}
+          {activeCategory === 'align' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => formatDoc('justifyLeft')}
+                  className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="Align Left"
+                >
+                  <AlignLeft size={16} />
+                </button>
+                <button
+                  onClick={() => formatDoc('justifyCenter')}
+                  className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="Align Center"
+                >
+                  <AlignCenter size={16} />
+                </button>
+                <button
+                  onClick={() => formatDoc('justifyRight')}
+                  className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="Align Right"
+                >
+                  <AlignRight size={16} />
+                </button>
+                <button
+                  onClick={() => formatDoc('justifyFull')}
+                  className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="Justify"
+                >
+                  <AlignJustify size={16} />
+                </button>
+                <button
+                  onClick={() => formatDoc('indent')}
+                  className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="Indent"
+                >
+                  <CornerDownRight size={16} />
+                </button>
+                <button
+                  onClick={() => formatDoc('outdent')}
+                  className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title="Outdent"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 2. Headings & Hierarchy */}
+          {activeCategory === 'headings' && (
+            <div className="grid grid-cols-4 gap-2">
               <button
-                type="button"
-                onClick={() => setShowAvatarPicker(false)}
-                className="text-slate-400 hover:text-white"
+                onClick={() => formatDoc('formatBlock', 'h1')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center font-bold"
               >
-                <X size={18} />
+                H1
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h2')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center font-bold"
+              >
+                H2
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h3')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center font-bold"
+              >
+                H3
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h4')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center font-bold"
+              >
+                H4
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h5')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center font-bold"
+              >
+                H5
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h6')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center font-bold"
+              >
+                H6
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'p')}
+                className="p-2 bg-slate-800 hover:bg-slate-700 rounded text-center col-span-2"
+              >
+                Paragraph
               </button>
             </div>
+          )}
 
-            <div className="grid grid-cols-4 gap-2">
-              {EMOJI_AVATARS.map((em) => (
-                <button
-                  key={em}
-                  type="button"
-                  onClick={() => {
-                    setAvatar({ type: 'emoji', value: em, bgColor: '#3b82f6' });
-                    setShowAvatarPicker(false);
-                  }}
-                  className="h-12 rounded-xl bg-slate-800/80 hover:bg-sky-600/30 text-2xl flex items-center justify-center hover:scale-110 transition-all border border-slate-700/60"
-                >
-                  {em}
-                </button>
-              ))}
+          {/* 3. Lists & Structure */}
+          {activeCategory === 'lists' && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => formatDoc('insertUnorderedList')}
+                className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5"
+              >
+                <List size={16} />
+                <span>Bulleted List</span>
+              </button>
+              <button
+                onClick={() => formatDoc('insertOrderedList')}
+                className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5"
+              >
+                <ListOrdered size={16} />
+                <span>Numbered List</span>
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'blockquote')}
+                className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5"
+              >
+                <Quote size={16} />
+                <span>Quote Block</span>
+              </button>
             </div>
+          )}
 
-            <div className="pt-2 border-t border-slate-800 flex justify-between items-center text-xs">
-              <span className="text-slate-400">Or use photo upload:</span>
-              <label className="cursor-pointer px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200">
-                <span>Upload Image</span>
+          {/* 4. Bilingual Fonts */}
+          {activeCategory === 'fonts' && (
+            <div className="space-y-3">
+              <div>
+                <span className="text-[11px] font-semibold text-amber-300 block mb-1.5">
+                  🇮🇳 Hindi Devanagari Fonts
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {HINDI_FONTS.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => {
+                        setFontFamily(f.id);
+                        setActiveCategory(null);
+                      }}
+                      className={`p-2 rounded border text-left text-xs transition-colors ${
+                        fontFamily === f.id
+                          ? 'border-amber-400 bg-amber-500/20 text-amber-200'
+                          : 'border-slate-800 bg-slate-950/40 text-slate-300'
+                      }`}
+                      style={{ fontFamily: f.id }}
+                    >
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className="text-[11px] font-semibold text-sky-300 block mb-1.5">
+                  🌐 English Fonts
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {ENGLISH_FONTS.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => {
+                        setFontFamily(f.id);
+                        setActiveCategory(null);
+                      }}
+                      className={`p-2 rounded border text-left text-xs transition-colors ${
+                        fontFamily === f.id
+                          ? 'border-sky-400 bg-sky-500/20 text-sky-200'
+                          : 'border-slate-800 bg-slate-950/40 text-slate-300'
+                      }`}
+                      style={{ fontFamily: f.id }}
+                    >
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 5. Custom Canvas Background with Transparency (Requirement #13) */}
+          {activeCategory === 'background' && (
+            <div className="space-y-3">
+              <div className="flex gap-2">
                 <input
+                  type="text"
+                  placeholder="Paste background image URL..."
+                  value={bgImageUrl}
+                  onChange={(e) => setBgImageUrl(e.target.value)}
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white"
+                />
+                <button
+                  onClick={() => bgImageInputRef.current?.click()}
+                  className="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold"
+                >
+                  Upload File
+                </button>
+                <input
+                  ref={bgImageInputRef}
                   type="file"
                   accept="image/*"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    const r = new FileReader();
-                    r.onload = () => {
-                      setAvatar({ type: 'image', value: r.result as string });
-                      setShowAvatarPicker(false);
-                    };
-                    r.readAsDataURL(f);
-                  }}
+                  onChange={handleBgImageUpload}
                   className="hidden"
                 />
-              </label>
+              </div>
+
+              {bgImageUrl && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Background Transparency (Opacity):</span>
+                    <span>{Math.round(bgOpacity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={1.0}
+                    step={0.05}
+                    value={bgOpacity}
+                    onChange={(e) => setBgOpacity(parseFloat(e.target.value))}
+                    className="w-full accent-sky-500 cursor-pointer"
+                  />
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => {
+                        setBgImageUrl('');
+                        setCanvasBg(undefined);
+                      }}
+                      className="text-rose-400 hover:text-rose-300 text-xs"
+                    >
+                      Remove Background
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Telegram Sticker Drawer */}
+      {/* BOTTOM DOCKED TOOLBAR (Default recommended for mobile) */}
+      {!isToolbarTop && (
+        <div className="px-3 py-2 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-between z-30 shrink-0 text-xs overflow-x-auto no-scrollbar gap-1 backdrop-blur-md">
+          <button
+            onClick={() =>
+              setActiveCategory(activeCategory === 'align' ? null : 'align')
+            }
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1 border transition-colors whitespace-nowrap ${
+              activeCategory === 'align'
+                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <AlignLeft size={15} />
+            <span>Align</span>
+          </button>
+
+          <button
+            onClick={() =>
+              setActiveCategory(activeCategory === 'headings' ? null : 'headings')
+            }
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1 border transition-colors whitespace-nowrap ${
+              activeCategory === 'headings'
+                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Type size={15} />
+            <span>Headings</span>
+          </button>
+
+          <button
+            onClick={() =>
+              setActiveCategory(activeCategory === 'lists' ? null : 'lists')
+            }
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1 border transition-colors whitespace-nowrap ${
+              activeCategory === 'lists'
+                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <List size={15} />
+            <span>Lists</span>
+          </button>
+
+          <button
+            onClick={() =>
+              setActiveCategory(activeCategory === 'fonts' ? null : 'fonts')
+            }
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1 border transition-colors whitespace-nowrap ${
+              activeCategory === 'fonts'
+                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <span>{fontFamily.split(' ')[0]}</span>
+            <ChevronDown size={13} />
+          </button>
+
+          <button
+            onClick={() =>
+              setActiveCategory(
+                activeCategory === 'background' ? null : 'background'
+              )
+            }
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1 border transition-colors whitespace-nowrap ${
+              activeCategory === 'background'
+                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Palette size={15} />
+            <span>BG</span>
+          </button>
+        </div>
+      )}
+
+      {/* STICKERS & GBOARD GIFS DRAWER (Requirement #10) */}
       {showStickerDrawer && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 w-full sm:max-w-md max-h-[75vh] flex flex-col shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex flex-col justify-end select-none">
+          <div
+            onClick={() => setShowStickerDrawer(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <div className="relative bg-slate-900 border-t border-slate-800 rounded-t-3xl p-4 shadow-2xl z-10 max-w-lg mx-auto w-full max-h-[70vh] flex flex-col">
+            <div className="w-10 h-1.5 bg-slate-700 rounded-full mx-auto mb-3" />
+
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h3 className="text-sm font-semibold text-white">
+                Stickers & Gboard GIFs
+              </h3>
               <div className="flex items-center gap-2">
-                <Smile size={18} className="text-sky-400" />
-                <h3 className="text-sm font-semibold text-slate-100">Telegram Sticker Pack</h3>
+                <button
+                  onClick={() => stickerFileInputRef.current?.click()}
+                  className="px-2.5 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-lg text-xs font-medium flex items-center gap-1"
+                >
+                  <Plus size={13} />
+                  <span>Upload GIF/Image</span>
+                </button>
+                <input
+                  ref={stickerFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleCustomStickerUpload}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => setShowStickerDrawer(false)}
+                  className="p-1 rounded text-slate-400 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowStickerDrawer(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X size={18} />
-              </button>
             </div>
 
-            <p className="text-xs text-slate-400">
-              Tap any sticker to place on canvas. You can drag and position it anywhere!
-            </p>
-
-            <div className="grid grid-cols-4 gap-3 overflow-y-auto max-h-[50vh] p-1">
+            <div className="flex-1 overflow-y-auto py-3 grid grid-cols-4 gap-3">
               {PRESET_STICKERS.map((stk) => (
                 <button
                   key={stk.id}
-                  type="button"
-                  onClick={() => handleAddSticker(stk)}
-                  className="flex flex-col items-center p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:scale-105 transition-all group"
+                  onClick={() => handleAddSticker(stk.svgDataUri, stk.name)}
+                  className="aspect-square rounded-xl bg-slate-800/40 hover:bg-slate-800 p-2 flex flex-col items-center justify-center transition-all hover:scale-105 active:scale-95"
                 >
-                  <img src={stk.svgDataUri} alt={stk.name} className="w-12 h-12 drop-shadow" />
-                  <span className="text-[10px] text-slate-400 mt-1 truncate max-w-full group-hover:text-slate-200">
+                  <img
+                    src={stk.svgDataUri}
+                    alt={stk.name}
+                    className="w-12 h-12 object-contain"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 truncate max-w-full">
                     {stk.name}
                   </span>
                 </button>
               ))}
             </div>
-
-            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Import custom sticker:</span>
-              <button
-                type="button"
-                onClick={() => customStickerInputRef.current?.click()}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 rounded-lg text-slate-200"
-              >
-                <Upload size={13} />
-                <span>Upload Sticker</span>
-              </button>
-              <input
-                type="file"
-                ref={customStickerInputRef}
-                accept="image/*"
-                onChange={handleAddCustomSticker}
-                className="hidden"
-              />
-            </div>
           </div>
         </div>
       )}
 
-      {/* Web Link Modal */}
-      {showLinkDialog && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-                <LinkIcon size={16} className="text-sky-400" />
-                <span>Insert Web Link</span>
+      {/* AUDIO VOICE RECORDER MODAL */}
+      {showAudioRecorder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setShowAudioRecorder(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl z-10 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Mic size={18} className="text-emerald-400" />
+                <span>Voice Memo Recording</span>
               </h3>
               <button
-                type="button"
-                onClick={() => setShowLinkDialog(false)}
-                className="text-slate-400 hover:text-white"
+                onClick={() => setShowAudioRecorder(false)}
+                className="p-1 rounded text-slate-400 hover:text-white"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="space-y-2 text-xs">
-              <div>
-                <label className="text-slate-400">Display Text (optional):</label>
-                <input
-                  type="text"
-                  value={linkText}
-                  onChange={(e) => setLinkText(e.target.value)}
-                  placeholder="e.g. My Favorite Source"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-slate-400">Target Web URL:</label>
-                <input
-                  type="url"
-                  value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none mt-1"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowLinkDialog(false)}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={insertLink}
-                className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-semibold text-xs rounded-xl shadow-md"
-              >
-                Insert Link
-              </button>
-            </div>
+            <AudioRecorder
+              onSaveRecording={(newRec) => {
+                setAudioRecordings([...audioRecordings, newRec]);
+                setShowAudioRecorder(false);
+              }}
+              onCancel={() => setShowAudioRecorder(false)}
+            />
           </div>
         </div>
       )}
 
-      {/* Image Editor Modal */}
-      {editingImage && (
-        <ImageEditorModal
-          imageUrl={editingImage}
-          onSave={(edited) => {
-            setAttachments((prev) =>
-              prev.map((att) => (att.url === editingImage ? { ...att, url: edited } : att))
-            );
-            setEditingImage(null);
-          }}
-          onClose={() => setEditingImage(null)}
-        />
+      {/* EMOJI AVATAR PICKER MODAL */}
+      {showAvatarPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setShowAvatarPicker(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <div className="relative bg-slate-900 border border-slate-800 rounded-2xl p-4 w-full max-w-xs shadow-2xl z-10 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <h4 className="text-xs font-semibold text-white">Choose Entry Icon</h4>
+              <button
+                onClick={() => setShowAvatarPicker(false)}
+                className="p-1 rounded text-slate-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {EMOJI_AVATARS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => {
+                    setAvatar({ ...avatar, value: emoji });
+                    setShowAvatarPicker(false);
+                  }}
+                  className="w-12 h-12 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-xl transition-all hover:scale-105"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

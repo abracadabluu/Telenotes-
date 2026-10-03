@@ -1,6 +1,6 @@
 {
   "name": "Telenotes",
-  "description": "Telegram-style encrypted diary, book writing studio, notes, to-dos and reminders with biometrics and military-grade local storage.",
+  "description": "Telegram-style encrypted diary & book writing studio with military-grade local storage, bilingual Hindi & English typography, and custom leather book covers.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

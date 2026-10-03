@@ -166,8 +166,8 @@ export function calculateStorageBreakdown(
     const bBytes = new Blob([bookText]).size;
     booksBytes += bBytes;
 
-    if (book.coverImage) {
-      imagesBytes += new Blob([book.coverImage]).size;
+    if (book.coverStyle?.customCoverUrl) {
+      imagesBytes += new Blob([book.coverStyle.customCoverUrl]).size;
     }
   }
 
@@ -200,18 +200,9 @@ export function exportToMarkdown(entry: DiaryEntry): void {
     md += `Tags: ${entry.tags.join(', ')}\n\n`;
   }
   md += `---\n\n`;
-  // strip some HTML or keep content
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = entry.content;
   md += (tempDiv.textContent || entry.plainText || entry.content) + '\n\n';
-
-  if (entry.todos && entry.todos.length > 0) {
-    md += `### To-Dos\n\n`;
-    for (const todo of entry.todos) {
-      md += `- [${todo.done ? 'x' : ' '}] ${todo.text}\n`;
-    }
-    md += '\n';
-  }
 
   downloadBlob(md, `${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.md`, 'text/markdown');
 }
@@ -222,13 +213,6 @@ export function exportToTxt(entry: DiaryEntry): void {
   txt += `Date: ${dateStr}\n`;
   txt += `========================================\n\n`;
   txt += entry.plainText || entry.content.replace(/<[^>]*>?/gm, '');
-
-  if (entry.todos && entry.todos.length > 0) {
-    txt += `\n\nTO-DOS:\n`;
-    for (const todo of entry.todos) {
-      txt += `[${todo.done ? '✓' : ' '}] ${todo.text}\n`;
-    }
-  }
 
   downloadBlob(txt, `${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.txt`, 'text/plain');
 }
@@ -244,26 +228,12 @@ export function exportToHtml(entry: DiaryEntry): void {
     body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1e293b; }
     h1 { margin-bottom: 8px; font-size: 2rem; }
     .meta { color: #64748b; font-size: 0.9rem; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
-    .todos { margin-top: 32px; padding: 16px; background: #f8fafc; border-radius: 8px; }
-    .todo-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   </style>
 </head>
 <body>
   <h1>${entry.title}</h1>
   <div class="meta">Created: ${dateStr}</div>
   <div class="content">${entry.content}</div>
-  ${
-    entry.todos && entry.todos.length > 0
-      ? `<div class="todos"><h3>To-Dos</h3>${entry.todos
-          .map(
-            (t) =>
-              `<div class="todo-item"><input type="checkbox" ${
-                t.done ? 'checked' : ''
-              } disabled /> <span>${t.text}</span></div>`
-          )
-          .join('')}</div>`
-      : ''
-  }
 </body>
 </html>`;
 
@@ -289,29 +259,56 @@ export function exportEntryToPdf(entry: DiaryEntry): void {
   const splitText = doc.splitTextToSize(cleanText, 170);
   doc.text(splitText, 20, 48);
 
-  let currentY = 48 + splitText.length * 6;
-
-  if (entry.todos && entry.todos.length > 0) {
-    if (currentY > 240) {
-      doc.addPage();
-      currentY = 25;
-    }
-    doc.setFontSize(14);
-    doc.text('Tasks & Checklists:', 20, currentY + 10);
-    currentY += 18;
-
-    doc.setFontSize(11);
-    for (const todo of entry.todos) {
-      doc.text(`[${todo.done ? 'X' : ' '}] ${todo.text}`, 24, currentY);
-      currentY += 7;
-      if (currentY > 275) {
-        doc.addPage();
-        currentY = 20;
-      }
-    }
-  }
-
   doc.save(`${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.pdf`);
+}
+
+export const HIDDEN_VAULT_KEY = 'telenotes_hidden_vault_encrypted_v3';
+
+export async function saveHiddenVaultBackup(
+  entries: DiaryEntry[],
+  books: BookProject[],
+  settings: AppSettings,
+  secretKey: string
+): Promise<boolean> {
+  try {
+    const backupData = {
+      entries,
+      books,
+      settings,
+      timestamp: Date.now(),
+      app: 'Telenotes',
+    };
+    const encrypted = await encryptPayload(backupData, secretKey);
+    localStorage.setItem(HIDDEN_VAULT_KEY, JSON.stringify(encrypted));
+    localStorage.setItem('telenotes_last_auto_backup', Date.now().toString());
+    return true;
+  } catch (err) {
+    console.error('Failed to save hidden vault backup:', err);
+    return false;
+  }
+}
+
+export async function recoverFromHiddenVault(secretKey: string): Promise<{
+  entries?: DiaryEntry[];
+  books?: BookProject[];
+  settings?: AppSettings;
+  timestamp?: number;
+} | null> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_VAULT_KEY);
+    if (!raw) return null;
+    const pkg = JSON.parse(raw) as EncryptedPackage;
+    const decrypted = await decryptPayload<{
+      entries?: DiaryEntry[];
+      books?: BookProject[];
+      settings?: AppSettings;
+      timestamp?: number;
+    }>(pkg, secretKey);
+    return decrypted;
+  } catch (err) {
+    console.error('Failed to decrypt hidden vault:', err);
+    return null;
+  }
 }
 
 export function exportBookToPdf(book: BookProject): void {

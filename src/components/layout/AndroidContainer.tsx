@@ -4,33 +4,54 @@ import { ThemeId } from '../../types';
 interface AndroidContainerProps {
   children: React.ReactNode;
   theme: ThemeId;
+  customTheme?: {
+    accentColor: string;
+    bgColor: string;
+    surfaceColor: string;
+  };
 }
 
-export const AndroidContainer: React.FC<AndroidContainerProps> = ({ children, theme }) => {
+export const AndroidContainer: React.FC<AndroidContainerProps> = ({
+  children,
+  theme,
+  customTheme,
+}) => {
   // Theme-specific styling classes
   const getThemeWrapperClass = () => {
     switch (theme) {
       case 'telegram-dark':
-        return 'bg-[#18222d] text-slate-100';
-      case 'telegram-light':
-        return 'bg-[#f5f6f8] text-slate-900';
-      case 'amoled':
-        return 'bg-black text-slate-100';
-      case 'material-green':
-        return 'bg-[#14251e] text-emerald-100';
-      case 'sunset':
-        return 'bg-[#2c1810] text-amber-100';
-      case 'cyber-teal':
-        return 'bg-[#0f2229] text-cyan-100';
+        return 'bg-[#0f172a] text-slate-100';
+      case 'midnight-onyx':
+        return 'bg-[#020617] text-slate-100';
+      case 'emerald-forest':
+        return 'bg-[#064e3b] text-emerald-100';
+      case 'cyberpunk-violet':
+        return 'bg-[#1e1b4b] text-purple-100';
+      case 'sepia-paper':
+        return 'bg-[#fef3c7] text-[#78350f]';
+      case 'minimal-light':
+        return 'bg-[#f8fafc] text-slate-900';
+      case 'custom':
+        return 'text-slate-100';
       default:
-        return 'bg-[#18222d] text-slate-100';
+        return 'bg-[#0f172a] text-slate-100';
     }
   };
 
+  const customStyle: React.CSSProperties =
+    theme === 'custom' && customTheme
+      ? {
+          backgroundColor: customTheme.bgColor,
+          color: '#f8fafc',
+        }
+      : {};
+
   return (
-    <div className={`w-screen h-[100dvh] min-h-[100dvh] m-0 p-0 overflow-hidden relative select-none flex flex-col ${getThemeWrapperClass()}`}>
-      {/* Inner App Shell - Full Edge-to-Edge Fill */}
-      <div className="flex-1 flex flex-col w-full h-full overflow-hidden relative pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div
+      style={customStyle}
+      className={`fixed inset-0 w-full h-full flex flex-col overflow-hidden select-none antialiased ${getThemeWrapperClass()} pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]`}
+    >
+      <div className="flex-1 flex flex-col w-full h-full overflow-hidden relative">
         {children}
       </div>
     </div>
