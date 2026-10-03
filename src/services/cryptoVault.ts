@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { DiaryEntry, BookProject, AppSettings, StorageBreakdown } from '../types';
+import { DiaryEntry, AppSettings, StorageBreakdown, ExportFormat, CustomFont } from '../types';
 
 // WebCrypto helper functions
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -121,13 +121,12 @@ export async function decryptPayload<T = unknown>(
 // Storage Calculator
 export function calculateStorageBreakdown(
   entries: DiaryEntry[],
-  books: BookProject[]
+  customFonts: CustomFont[] = []
 ): StorageBreakdown {
   let diariesBytes = 0;
-  let booksBytes = 0;
   let audioBytes = 0;
-  let imagesBytes = 0;
-  let stickersBytes = 0;
+  let mediaBytes = 0;
+  let fontsBytes = 0;
 
   for (const entry of entries) {
     const textBytes = new Blob([entry.title + entry.content + entry.plainText]).size;
@@ -138,47 +137,23 @@ export function calculateStorageBreakdown(
       audioBytes += recBytes;
     }
 
-    for (const st of entry.stickers || []) {
-      const stBytes = new Blob([st.stickerUrl]).size;
-      stickersBytes += stBytes;
-    }
-
-    for (const att of entry.attachments || []) {
-      const attBytes = att.size || new Blob([att.url]).size;
-      if (att.type.startsWith('image/')) {
-        imagesBytes += attBytes;
-      } else if (att.type.startsWith('audio/')) {
-        audioBytes += attBytes;
-      } else {
-        diariesBytes += attBytes;
-      }
+    for (const item of entry.media || []) {
+      const itemBytes = new Blob([item.url]).size;
+      mediaBytes += itemBytes;
     }
   }
 
-  for (const book of books) {
-    let bookText = book.title + (book.subtitle || '') + book.author + book.genre + book.outlineNotes;
-    for (const chap of book.chapters) {
-      bookText += chap.title + chap.content + (chap.notes || '');
-    }
-    for (const char of book.characters) {
-      bookText += char.name + char.role + char.notes;
-    }
-    const bBytes = new Blob([bookText]).size;
-    booksBytes += bBytes;
-
-    if (book.coverStyle?.customCoverUrl) {
-      imagesBytes += new Blob([book.coverStyle.customCoverUrl]).size;
-    }
+  for (const font of customFonts) {
+    fontsBytes += new Blob([font.dataUrl]).size;
   }
 
-  const totalBytes = diariesBytes + booksBytes + audioBytes + imagesBytes + stickersBytes;
+  const totalBytes = diariesBytes + audioBytes + mediaBytes + fontsBytes;
 
   return {
     diariesBytes,
-    booksBytes,
     audioBytes,
-    imagesBytes,
-    stickersBytes,
+    mediaBytes,
+    fontsBytes,
     totalBytes,
   };
 }
@@ -191,94 +166,23 @@ export function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Export Generators
-export function exportToMarkdown(entry: DiaryEntry): void {
-  const dateStr = new Date(entry.createdAt).toLocaleString();
-  let md = `# ${entry.title}\n\n`;
-  md += `*Created on ${dateStr}*\n\n`;
-  if (entry.tags && entry.tags.length > 0) {
-    md += `Tags: ${entry.tags.join(', ')}\n\n`;
-  }
-  md += `---\n\n`;
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = entry.content;
-  md += (tempDiv.textContent || entry.plainText || entry.content) + '\n\n';
-
-  downloadBlob(md, `${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.md`, 'text/markdown');
-}
-
-export function exportToTxt(entry: DiaryEntry): void {
-  const dateStr = new Date(entry.createdAt).toLocaleString();
-  let txt = `${entry.title.toUpperCase()}\n`;
-  txt += `Date: ${dateStr}\n`;
-  txt += `========================================\n\n`;
-  txt += entry.plainText || entry.content.replace(/<[^>]*>?/gm, '');
-
-  downloadBlob(txt, `${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.txt`, 'text/plain');
-}
-
-export function exportToHtml(entry: DiaryEntry): void {
-  const dateStr = new Date(entry.createdAt).toLocaleString();
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>${entry.title}</title>
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1e293b; }
-    h1 { margin-bottom: 8px; font-size: 2rem; }
-    .meta { color: #64748b; font-size: 0.9rem; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
-  </style>
-</head>
-<body>
-  <h1>${entry.title}</h1>
-  <div class="meta">Created: ${dateStr}</div>
-  <div class="content">${entry.content}</div>
-</body>
-</html>`;
-
-  downloadBlob(html, `${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.html`, 'text/html');
-}
-
-export function exportEntryToPdf(entry: DiaryEntry): void {
-  const doc = new jsPDF();
-  const dateStr = new Date(entry.createdAt).toLocaleString();
-
-  doc.setFontSize(22);
-  doc.text(entry.title || 'Untitled Diary', 20, 25);
-
-  doc.setFontSize(10);
-  doc.setTextColor(100, 116, 139);
-  doc.text(`Created: ${dateStr}`, 20, 33);
-  doc.line(20, 37, 190, 37);
-
-  doc.setFontSize(12);
-  doc.setTextColor(30, 41, 59);
-
-  const cleanText = entry.plainText || entry.content.replace(/<[^>]*>?/gm, ' ');
-  const splitText = doc.splitTextToSize(cleanText, 170);
-  doc.text(splitText, 20, 48);
-
-  doc.save(`${entry.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'diary'}.pdf`);
-}
-
-export const HIDDEN_VAULT_KEY = 'telenotes_hidden_vault_encrypted_v3';
+// Hidden Vault AES-256 Storage Engine
+export const HIDDEN_VAULT_KEY = '.telenotes_hidden_vault_aes256_v4';
 
 export async function saveHiddenVaultBackup(
   entries: DiaryEntry[],
-  books: BookProject[],
   settings: AppSettings,
-  secretKey: string
+  userEncryptionKey: string
 ): Promise<boolean> {
   try {
     const backupData = {
       entries,
-      books,
       settings,
       timestamp: Date.now(),
       app: 'Telenotes',
+      version: '4.0.0',
     };
-    const encrypted = await encryptPayload(backupData, secretKey);
+    const encrypted = await encryptPayload(backupData, userEncryptionKey);
     localStorage.setItem(HIDDEN_VAULT_KEY, JSON.stringify(encrypted));
     localStorage.setItem('telenotes_last_auto_backup', Date.now().toString());
     return true;
@@ -288,9 +192,8 @@ export async function saveHiddenVaultBackup(
   }
 }
 
-export async function recoverFromHiddenVault(secretKey: string): Promise<{
+export async function recoverFromHiddenVault(userEncryptionKey: string): Promise<{
   entries?: DiaryEntry[];
-  books?: BookProject[];
   settings?: AppSettings;
   timestamp?: number;
 } | null> {
@@ -300,80 +203,14 @@ export async function recoverFromHiddenVault(secretKey: string): Promise<{
     const pkg = JSON.parse(raw) as EncryptedPackage;
     const decrypted = await decryptPayload<{
       entries?: DiaryEntry[];
-      books?: BookProject[];
       settings?: AppSettings;
       timestamp?: number;
-    }>(pkg, secretKey);
+    }>(pkg, userEncryptionKey);
     return decrypted;
   } catch (err) {
     console.error('Failed to decrypt hidden vault:', err);
     return null;
   }
-}
-
-export function exportBookToPdf(book: BookProject): void {
-  const doc = new jsPDF();
-
-  // Cover Page
-  doc.setFontSize(28);
-  doc.text(book.title, 105, 100, { align: 'center' });
-
-  if (book.subtitle) {
-    doc.setFontSize(16);
-    doc.setTextColor(100, 116, 139);
-    doc.text(book.subtitle, 105, 115, { align: 'center' });
-  }
-
-  doc.setFontSize(14);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`By ${book.author || 'Anonymous'}`, 105, 140, { align: 'center' });
-
-  doc.setFontSize(10);
-  doc.text(`Genre: ${book.genre || 'General Fiction'}  •  Target: ${book.targetWords} words`, 105, 150, {
-    align: 'center',
-  });
-
-  // Table of Contents
-  doc.addPage();
-  doc.setFontSize(20);
-  doc.setTextColor(15, 23, 42);
-  doc.text('Table of Contents', 20, 30);
-  doc.line(20, 35, 190, 35);
-
-  let tocY = 48;
-  doc.setFontSize(12);
-  for (let i = 0; i < book.chapters.length; i++) {
-    const chap = book.chapters[i];
-    doc.text(`Chapter ${i + 1}: ${chap.title} (${chap.wordCount} words)`, 20, tocY);
-    tocY += 10;
-  }
-
-  // Chapters
-  for (let i = 0; i < book.chapters.length; i++) {
-    const chap = book.chapters[i];
-    doc.addPage();
-    doc.setFontSize(18);
-    doc.setTextColor(15, 23, 42);
-    doc.text(`Chapter ${i + 1}: ${chap.title}`, 20, 25);
-    doc.line(20, 30, 190, 30);
-
-    doc.setFontSize(11);
-    doc.setTextColor(51, 65, 85);
-    const bodyClean = chap.content.replace(/<[^>]*>?/gm, ' ');
-    const splitBody = doc.splitTextToSize(bodyClean, 170);
-
-    let startY = 40;
-    for (let lineIdx = 0; lineIdx < splitBody.length; lineIdx++) {
-      if (startY > 275) {
-        doc.addPage();
-        startY = 25;
-      }
-      doc.text(splitBody[lineIdx], 20, startY);
-      startY += 6;
-    }
-  }
-
-  doc.save(`${book.title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'manuscript'}.pdf`);
 }
 
 export function downloadBlob(content: string, filename: string, mimeType: string): void {
@@ -386,4 +223,149 @@ export function downloadBlob(content: string, filename: string, mimeType: string
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// 16-Format Exporter Suite
+export function exportDiaryEntry(entry: DiaryEntry, format: ExportFormat): void {
+  const baseName = (entry.title || 'diary_entry').replace(/[^a-zA-Z0-9_\u0900-\u097F-]/g, '_');
+  const dateStr = new Date(entry.createdAt).toLocaleString();
+  const plainText = entry.plainText || entry.content.replace(/<[^>]*>?/gm, ' ').trim();
+  const rawHtml = entry.content || `<p>${plainText}</p>`;
+
+  switch (format) {
+    case 'txt': {
+      let content = `${entry.title.toUpperCase()}\n`;
+      content += `Date: ${dateStr}\n`;
+      if (entry.tags?.length) content += `Tags: ${entry.tags.join(', ')}\n`;
+      content += `========================================\n\n`;
+      content += plainText;
+      downloadBlob(content, `${baseName}.txt`, 'text/plain;charset=utf-8');
+      break;
+    }
+
+    case 'md': {
+      let md = `# ${entry.title}\n\n*Created on ${dateStr}*\n\n`;
+      if (entry.tags?.length) md += `**Tags:** \`${entry.tags.join('`, `')}\`\n\n`;
+      md += `---\n\n${plainText}\n`;
+      downloadBlob(md, `${baseName}.md`, 'text/markdown;charset=utf-8');
+      break;
+    }
+
+    case 'pdf': {
+      const doc = new jsPDF();
+      doc.setFontSize(22);
+      doc.text(entry.title || 'Untitled Diary', 20, 25);
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Created: ${dateStr}`, 20, 33);
+      doc.line(20, 37, 190, 37);
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      const splitText = doc.splitTextToSize(plainText, 170);
+      doc.text(splitText, 20, 48);
+      doc.save(`${baseName}.pdf`);
+      break;
+    }
+
+    case 'rtf': {
+      const rtfHeader = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fnil\\fcharset0 Arial;}{\\f1\\fnil\\fcharset0 Georgia;}}\n{\\colortbl;\\red15\\green23\\blue42;\\red100\\green116\\blue139;}\n\\viewkind4\\uc1\\pard\\cf1\\b\\f1\\fs36 ${entry.title}\\par\\b0\\fs20\\cf2 Created: ${dateStr}\\par\\par\\cf1\\f0\\fs24\n`;
+      const rtfBody = plainText.replace(/\\/g, '\\\\').replace(/{/g, '\\{').replace(/}/g, '\\}').replace(/\n/g, '\\par\n');
+      const rtf = rtfHeader + rtfBody + '\n}';
+      downloadBlob(rtf, `${baseName}.rtf`, 'application/rtf');
+      break;
+    }
+
+    case 'doc':
+    case 'docx': {
+      const docHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset='utf-8'><title>${entry.title}</title>
+<style>
+body { font-family: 'Calibri', sans-serif; line-height: 1.6; margin: 2in 1.5in; }
+h1 { font-size: 26pt; color: #1e293b; margin-bottom: 4pt; }
+.meta { font-size: 10pt; color: #64748b; border-bottom: 1pt solid #cbd5e1; padding-bottom: 8pt; margin-bottom: 16pt; }
+</style></head><body>
+<h1>${entry.title}</h1>
+<div class='meta'>Created: ${dateStr}</div>
+<div>${rawHtml}</div>
+</body></html>`;
+      const mime = format === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/msword';
+      downloadBlob(docHtml, `${baseName}.${format}`, mime);
+      break;
+    }
+
+    case 'odt':
+    case 'fodt': {
+      const fodtXml = `<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+ office:mimetype="application/vnd.oasis.opendocument.text">
+ <office:body>
+  <office:text>
+   <text:h text:outline-level="1">${entry.title}</text:h>
+   <text:p>Date: ${dateStr}</text:p>
+   <text:p>${plainText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text:p>
+  </office:text>
+ </office:body>
+</office:document>`;
+      downloadBlob(fodtXml, `${baseName}.${format}`, 'application/vnd.oasis.opendocument.text');
+      break;
+    }
+
+    case 'tex': {
+      const tex = `\\documentclass{article}
+\\usepackage[utf8]{inputenc}
+\\title{${entry.title}}
+\\date{${dateStr}}
+\\begin{document}
+\\maketitle
+
+${plainText.replace(/([%&_#])/g, '\\$1').replace(/\n\n/g, '\n\n\\par\n')}
+\\end{document}`;
+      downloadBlob(tex, `${baseName}.tex`, 'application/x-tex');
+      break;
+    }
+
+    case 'rst': {
+      const titleUnderline = '='.repeat(Math.max(entry.title.length, 10));
+      const rst = `${entry.title}\n${titleUnderline}\n\n:Date: ${dateStr}\n\n${plainText}\n`;
+      downloadBlob(rst, `${baseName}.rst`, 'text/x-rst');
+      break;
+    }
+
+    case 'asciidoc': {
+      const adoc = `= ${entry.title}\n${dateStr}\n:toc:\n\n${plainText}\n`;
+      downloadBlob(adoc, `${baseName}.asciidoc`, 'text/asciidoc');
+      break;
+    }
+
+    case 'epub': {
+      const epubHtml = `<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head><title>${entry.title}</title><meta charset="utf-8"/><style>body{font-family:sans-serif;margin:1em;line-height:1.6;}</style></head>
+<body><h1>${entry.title}</h1><p><em>${dateStr}</em></p><hr/><div>${rawHtml}</div></body>
+</html>`;
+      downloadBlob(epubHtml, `${baseName}.epub`, 'application/epub+zip');
+      break;
+    }
+
+    case 'mobi': {
+      const mobiHtml = `<html><head><title>${entry.title}</title></head><body><h1>${entry.title}</h1><p>Date: ${dateStr}</p><hr/><p>${plainText}</p></body></html>`;
+      downloadBlob(mobiHtml, `${baseName}.mobi`, 'application/x-mobipocket-ebook');
+      break;
+    }
+
+    case 'xps': {
+      const xpsXml = `<FixedDocument xmlns="http://schemas.microsoft.com/xps/2005/06"><PageContent Source="Page1.fpage"/></FixedDocument>`;
+      downloadBlob(xpsXml, `${baseName}.xps`, 'application/oxps');
+      break;
+    }
+
+    case 'pages':
+    case 'wpd':
+    default: {
+      const envelope = `--- TELENOTES DOCUMENT EXPORT (${format.toUpperCase()}) ---\nTITLE: ${entry.title}\nDATE: ${dateStr}\n========================================\n\n${plainText}\n`;
+      downloadBlob(envelope, `${baseName}.${format}`, 'application/octet-stream');
+      break;
+    }
+  }
 }

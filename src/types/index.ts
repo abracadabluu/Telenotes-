@@ -6,27 +6,20 @@ export interface AudioRecording {
   title: string;
 }
 
-export interface CanvasSticker {
+export interface CanvasMediaItem {
   id: string;
-  stickerUrl: string;
+  type: 'image' | 'sticker' | 'gif';
+  url: string;
   name: string;
   x: number; // percentage (0 to 100) or px
   y: number;
-  scale: number;
+  width: number;
+  height: number;
   rotation: number;
-  isGif?: boolean;
-}
-
-export interface MediaAttachment {
-  id: string;
-  name: string;
-  url: string;
-  type: string; // image/png, image/gif, audio/mp3, etc.
-  size: number;
-  layoutMode?: 'inline' | 'floating' | 'banner';
-  x?: number;
-  y?: number;
-  width?: number;
+  filter?: string;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
 }
 
 export interface EntryReminder {
@@ -49,7 +42,7 @@ export interface DiaryEntry {
   createdAt: number;
   updatedAt: number;
   avatar: {
-    type: 'emoji' | 'image' | 'initials';
+    type: 'emoji' | 'image' | 'gif';
     value: string;
     bgColor?: string;
   };
@@ -57,63 +50,12 @@ export interface DiaryEntry {
   isPinned: boolean;
   mood?: string;
   audioRecordings: AudioRecording[];
-  stickers: CanvasSticker[];
-  attachments: MediaAttachment[];
+  media: CanvasMediaItem[];
   canvasBackground?: CanvasBackground;
   reminder?: EntryReminder;
   tags: string[];
   fontFamily?: string;
   fontSize?: number;
-}
-
-export interface BookChapter {
-  id: string;
-  title: string;
-  order: number;
-  content: string;
-  wordCount: number;
-  notes?: string;
-  status: 'draft' | 'revised' | 'complete';
-}
-
-export interface BookCharacter {
-  id: string;
-  name: string;
-  role: string;
-  notes: string;
-  avatar?: string;
-}
-
-export type BookCoverTexture = 
-  | 'leather-classic'
-  | 'leather-dark'
-  | 'leather-cognac'
-  | 'leather-forest'
-  | 'leather-crimson'
-  | 'custom-image';
-
-export interface BookCoverStyle {
-  texture: BookCoverTexture;
-  color?: string;
-  goldFoil?: boolean;
-  ribbonColor?: string;
-  customCoverUrl?: string;
-}
-
-export interface BookProject {
-  id: string;
-  title: string;
-  subtitle?: string;
-  author: string;
-  genre: string;
-  targetWords: number;
-  createdAt: number;
-  updatedAt: number;
-  coverStyle?: BookCoverStyle;
-  chapters: BookChapter[];
-  characters: BookCharacter[];
-  outlineNotes: string;
-  canvasBackground?: CanvasBackground;
 }
 
 export interface Folder {
@@ -125,72 +67,83 @@ export interface Folder {
 }
 
 export type ThemeId =
-  | 'telegram-dark'
-  | 'midnight-onyx'
-  | 'emerald-forest'
-  | 'cyberpunk-violet'
-  | 'sepia-paper'
-  | 'minimal-light'
+  | 'light'
+  | 'dark'
+  | 'amoled'
+  | 'system'
+  | 'cyberpunk-neon'
+  | 'minimalist-monochrome'
+  | 'nordic-pastel'
+  | 'retro-vintage'
+  | 'midnight-ocean'
+  | 'forest-emerald'
+  | 'sunset-terracotta'
+  | 'material-you'
+  | 'glassmorphism'
+  | 'neumorphism'
   | 'custom';
-
-export type AppIconId = 'classic' | 'dark' | 'gold' | 'ruby' | 'emerald';
 
 export interface CustomFont {
   id: string;
   name: string;
-  dataUrl?: string;
+  dataUrl: string; // base64 of TTF/WOFF/OTF
   fontFamily: string;
-  language: 'en' | 'hi' | 'both';
+  fileName: string;
 }
 
 export interface AppSettings {
-  landingPage: 'diary' | 'books';
   theme: ThemeId;
-  customTheme?: {
-    accentColor: string;
-    bgColor: string;
-    surfaceColor: string;
-  };
-  appIcon: AppIconId;
+  customHexColor?: string;
   activeFontFamily: string;
-  toolbarPosition: 'bottom' | 'top';
-  diaryFeedConfig: {
-    showTagsBar: boolean;
-    snippetPreview: boolean;
+  previewConfig: {
+    showAvatar: boolean;
+    contentLines: 0 | 1 | 2; // 0 = off, 1 line, 2 lines
     showDate: boolean;
-    showWordCount: boolean;
-    showMediaCount: boolean;
-    compactMode: boolean;
-  };
-  booksGridConfig: {
-    showWordGoal: boolean;
-    showGenreBadge: boolean;
+    showTime: boolean;
   };
   security: {
     isPasscodeEnabled: boolean;
-    passcodeHash: string; // SHA-256 hash with salt
+    passcodeType: 'pin' | 'pattern';
+    passcodeHash: string; // SHA-256 hash of PIN or pattern path
+    patternPoints: number[]; // e.g. [0, 1, 2, 5]
     salt: string;
     biometricsEnabled: boolean;
     autoLockDelayMinutes: number; // 0 = immediate, 1, 5, 15, 30, -1 = never
     isSetupDone: boolean;
     masterKeyHash: string;
     masterKeyHint?: string;
-    recoveryPhrase?: string;
   };
-  autoBackup: {
-    interval: 'off' | '6h' | 'daily' | 'weekly';
+  backupConfig: {
+    hiddenVaultKeySet: boolean;
+    autoBackupInterval: 'off' | '6h' | 'daily' | 'weekly';
     lastBackupTimestamp?: number;
     hiddenVaultKey?: string;
-    cloudSyncEnabled?: boolean;
   };
   customFonts: CustomFont[];
 }
 
 export interface StorageBreakdown {
   diariesBytes: number;
-  booksBytes: number;
   audioBytes: number;
-  imagesBytes: number;
-  stickersBytes: number;
+  mediaBytes: number;
+  fontsBytes: number;
   totalBytes: number;
 }
+
+export type ExportFormat =
+  | 'txt'
+  | 'rtf'
+  | 'doc'
+  | 'docx'
+  | 'odt'
+  | 'pages'
+  | 'wpd'
+  | 'tex'
+  | 'md'
+  | 'rst'
+  | 'asciidoc'
+  | 'pdf'
+  | 'epub'
+  | 'mobi'
+  | 'xps'
+  | 'fodt';

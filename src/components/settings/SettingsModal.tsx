@@ -3,52 +3,37 @@ import {
   X,
   Palette,
   Shield,
-  HardDrive,
-  RefreshCw,
-  Download,
-  Upload,
-  Lock,
   Sliders,
+  HardDrive,
   Check,
   Key,
-  BookOpen,
-  MessageSquare,
-  Type,
-  Layout,
-  Clock,
-  Sparkles,
+  Lock,
+  Grid,
+  Fingerprint,
+  Download,
+  Upload,
+  RefreshCw,
+  FolderLock,
+  Cloud,
 } from 'lucide-react';
+import { AppSettings, ThemeId, DiaryEntry, StorageBreakdown } from '../../types';
+import { THEME_REGISTRY } from '../layout/AndroidContainer';
 import {
-  AppSettings,
-  ThemeId,
-  StorageBreakdown,
-  DiaryEntry,
-  BookProject,
-} from '../../types';
-import {
-  formatBytes,
-  downloadBlob,
-  encryptPayload,
-  decryptPayload,
-  hashSecret,
-  generateRandomSalt,
   saveHiddenVaultBackup,
   recoverFromHiddenVault,
+  hashSecret,
+  generateRandomSalt,
+  encryptPayload,
+  downloadBlob,
+  formatBytes,
 } from '../../services/cryptoVault';
 
 interface SettingsModalProps {
   settings: AppSettings;
   storageBreakdown: StorageBreakdown;
   entries: DiaryEntry[];
-  books: BookProject[];
-  currentMode: 'diary' | 'books';
-  onSwitchMode: (mode: 'diary' | 'books') => void;
   onUpdateSettings: (newSettings: AppSettings) => void;
-  onRestoreData: (restored: {
-    entries?: DiaryEntry[];
-    books?: BookProject[];
-    settings?: AppSettings;
-  }) => void;
+  onRestoreData: (restored: { entries?: DiaryEntry[]; settings?: AppSettings }) => void;
   onClose: () => void;
 }
 
@@ -56,392 +41,256 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   storageBreakdown,
   entries,
-  books,
-  currentMode,
-  onSwitchMode,
   onUpdateSettings,
   onRestoreData,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<
-    'mode' | 'theme' | 'fonts' | 'feed' | 'security' | 'backup' | 'storage'
-  >('mode');
+  const [activeTab, setActiveTab] = useState<'themes' | 'security' | 'custom' | 'backup'>('themes');
 
   // Security editing state
-  const [newPin, setNewPin] = useState('');
-  const [confirmNewPin, setConfirmNewPin] = useState('');
-  const [pinChangeMsg, setPinChangeMsg] = useState('');
-  const [newMasterKey, setNewMasterKey] = useState('');
-  const [masterKeyChangeMsg, setMasterKeyChangeMsg] = useState('');
+  const [pinInput, setPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [patternDots, setPatternDots] = useState<number[]>([]);
+  const [securityMsg, setSecurityMsg] = useState('');
 
   // Backup & Restore state
-  const [restoreSecretKey, setRestoreSecretKey] = useState('');
-  const [restoreFileContent, setRestoreFileContent] = useState<string | null>(null);
-  const [restoreOptions, setRestoreOptions] = useState({
-    diaries: true,
-    books: true,
-    settings: true,
-  });
-  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [hiddenVaultMsg, setHiddenVaultMsg] = useState<string | null>(null);
-  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [userBackupKey, setUserBackupKey] = useState('');
+  const [confirmBackupKey, setConfirmBackupKey] = useState('');
+  const [restoreKey, setRestoreKey] = useState('');
+  const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
+  const [backupErrorMsg, setBackupErrorMsg] = useState<string | null>(null);
 
-  // Custom colors
-  const [customAccent, setCustomAccent] = useState(
-    settings.customTheme?.accentColor || '#38bdf8'
-  );
-  const [customBg, setCustomBg] = useState(
-    settings.customTheme?.bgColor || '#090d16'
-  );
+  // Custom Hex Color
+  const [customHex, setCustomHex] = useState(settings.customHexColor || '#38bdf8');
 
-  // Switch Theme
-  const handleThemeChange = (themeId: ThemeId) => {
+  // Handle Theme Change
+  const handleSelectTheme = (themeId: ThemeId) => {
     onUpdateSettings({
       ...settings,
       theme: themeId,
-      customTheme:
-        themeId === 'custom'
-          ? {
-              accentColor: customAccent,
-              bgColor: customBg,
-              surfaceColor: '#1e293b',
-            }
-          : settings.customTheme,
+      customHexColor: themeId === 'custom' ? customHex : settings.customHexColor,
     });
   };
 
-  // Change PIN
-  const handleChangePin = async () => {
-    if (newPin.length !== 4) {
-      setPinChangeMsg('PIN must be exactly 4 digits');
+  // Save PIN Passcode
+  const handleSavePin = async () => {
+    if (pinInput.length !== 4) {
+      setSecurityMsg('PIN must be exactly 4 digits');
       return;
     }
-    if (newPin !== confirmNewPin) {
-      setPinChangeMsg('PINs do not match');
+    if (pinInput !== confirmPinInput) {
+      setSecurityMsg('PINs do not match');
       return;
     }
-
     const salt = generateRandomSalt();
-    const passcodeHash = await hashSecret(newPin, salt);
-
+    const passcodeHash = await hashSecret(pinInput, salt);
     onUpdateSettings({
       ...settings,
       security: {
         ...settings.security,
+        isPasscodeEnabled: true,
+        passcodeType: 'pin',
         passcodeHash,
         salt,
       },
     });
-
-    setPinChangeMsg('PIN updated successfully!');
-    setNewPin('');
-    setConfirmNewPin('');
+    setSecurityMsg('4-digit PIN saved successfully!');
+    setPinInput('');
+    setConfirmPinInput('');
   };
 
-  // Change Master Key
-  const handleChangeMasterKey = async () => {
-    if (!newMasterKey.trim() || newMasterKey.length < 6) {
-      setMasterKeyChangeMsg('Master Key must be at least 6 characters');
+  // Save Pattern Passcode
+  const handleSavePattern = async () => {
+    if (patternDots.length < 4) {
+      setSecurityMsg('Pattern must connect at least 4 dots');
       return;
     }
-
-    const salt = settings.security.salt || generateRandomSalt();
-    const masterKeyHash = await hashSecret(newMasterKey.trim(), salt);
-
+    const patternStr = patternDots.join('-');
+    const salt = generateRandomSalt();
+    const passcodeHash = await hashSecret(patternStr, salt);
     onUpdateSettings({
       ...settings,
       security: {
         ...settings.security,
-        masterKeyHash,
-        masterKeyHint: newMasterKey.slice(0, 8) + '...',
+        isPasscodeEnabled: true,
+        passcodeType: 'pattern',
+        passcodeHash,
+        patternPoints: patternDots,
+        salt,
       },
     });
-
-    setMasterKeyChangeMsg('Master Key updated!');
-    setNewMasterKey('');
+    setSecurityMsg('Pattern lock saved successfully!');
+    setPatternDots([]);
   };
 
-  // Manual Encrypted Backup Download (.telenotes)
-  const handleDownloadBackup = async () => {
-    try {
-      setIsBackingUp(true);
-      const secret = settings.security.masterKeyHint || 'telenotes_vault_key';
-      const backupPayload = {
-        entries,
-        books,
-        settings,
-        exportTimestamp: Date.now(),
-        app: 'Telenotes',
-      };
-      const encrypted = await encryptPayload(backupPayload, secret);
-      downloadBlob(
-        JSON.stringify(encrypted, null, 2),
-        `telenotes_encrypted_backup_${new Date().toISOString().split('T')[0]}.telenotes`,
-        'application/json'
-      );
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsBackingUp(false);
+  // Local Hidden Vault AES-256 Backup (Requirement #5-d)
+  const handleCreateHiddenVaultBackup = async () => {
+    setBackupStatusMsg(null);
+    setBackupErrorMsg(null);
+    if (!userBackupKey.trim() || userBackupKey.length < 6) {
+      setBackupErrorMsg('Encryption key must be at least 6 characters');
+      return;
     }
-  };
+    if (userBackupKey !== confirmBackupKey) {
+      setBackupErrorMsg('Encryption keys do not match');
+      return;
+    }
 
-  // Immediate Hidden Vault Backup
-  const handleInstantHiddenVaultBackup = async () => {
-    setIsBackingUp(true);
-    const key = settings.security.masterKeyHint || 'telenotes_vault_key';
-    const success = await saveHiddenVaultBackup(entries, books, settings, key);
-    setIsBackingUp(false);
+    const success = await saveHiddenVaultBackup(entries, settings, userBackupKey);
     if (success) {
-      setHiddenVaultMsg('Encrypted hidden backup saved to local storage!');
       onUpdateSettings({
         ...settings,
-        autoBackup: {
-          ...settings.autoBackup,
+        backupConfig: {
+          ...settings.backupConfig,
+          hiddenVaultKeySet: true,
           lastBackupTimestamp: Date.now(),
         },
       });
-      setTimeout(() => setHiddenVaultMsg(null), 4000);
+      setBackupStatusMsg('Encrypted hidden backup created in .telenotes_vault/!');
+      setUserBackupKey('');
+      setConfirmBackupKey('');
     } else {
-      setHiddenVaultMsg('Failed to save backup.');
+      setBackupErrorMsg('Failed to create hidden backup');
     }
   };
 
-  // Restore from Hidden Vault Storage
-  const handleRestoreFromHiddenStorage = async () => {
-    setRestoreMsg(null);
-    setRestoreError(null);
-    if (!restoreSecretKey) {
-      setRestoreError('Please enter your Master Key to decrypt the hidden backup');
+  // Restore from Hidden Device Storage (Requirement #5-d)
+  const handleRestoreFromHiddenVault = async () => {
+    setBackupStatusMsg(null);
+    setBackupErrorMsg(null);
+    if (!restoreKey) {
+      setBackupErrorMsg('Please enter your encryption key to decrypt');
       return;
     }
-    const recovered = await recoverFromHiddenVault(restoreSecretKey);
+    const recovered = await recoverFromHiddenVault(restoreKey);
     if (!recovered) {
-      setRestoreError('Invalid Master Key or no hidden backup found on this device.');
+      setBackupErrorMsg('Invalid encryption key or no hidden backup found.');
       return;
     }
 
     onRestoreData({
-      entries: restoreOptions.diaries ? recovered.entries : undefined,
-      books: restoreOptions.books ? recovered.books : undefined,
-      settings: restoreOptions.settings ? recovered.settings : undefined,
+      entries: recovered.entries,
+      settings: recovered.settings,
     });
-
-    setRestoreMsg('Vault restored successfully from device storage!');
-    setRestoreSecretKey('');
+    setBackupStatusMsg('Vault successfully decrypted and restored!');
+    setRestoreKey('');
   };
 
-  // File Upload Restore
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setRestoreFileContent(event.target?.result as string);
+  // Export encrypted file for Google Drive
+  const handleExportGoogleDriveVault = async () => {
+    const key = settings.security.masterKeyHint || 'telenotes_drive_key';
+    const payload = {
+      entries,
+      settings,
+      app: 'Telenotes',
+      encryptedAt: Date.now(),
     };
-    reader.readAsText(file);
+    const encrypted = await encryptPayload(payload, key);
+    downloadBlob(
+      JSON.stringify(encrypted, null, 2),
+      `telenotes_drive_vault_${new Date().toISOString().split('T')[0]}.telenotes`,
+      'application/json'
+    );
   };
 
-  const handleDecryptAndRestoreFile = async () => {
-    if (!restoreFileContent) {
-      setRestoreError('Please select a .telenotes backup file first.');
-      return;
-    }
-    if (!restoreSecretKey) {
-      setRestoreError('Please enter the Master Secret Key used when creating the backup.');
-      return;
-    }
-
-    try {
-      const parsedPkg = JSON.parse(restoreFileContent);
-      const decrypted = await decryptPayload<{
-        entries?: DiaryEntry[];
-        books?: BookProject[];
-        settings?: AppSettings;
-      }>(parsedPkg, restoreSecretKey);
-
-      onRestoreData({
-        entries: restoreOptions.diaries ? decrypted.entries : undefined,
-        books: restoreOptions.books ? decrypted.books : undefined,
-        settings: restoreOptions.settings ? decrypted.settings : undefined,
-      });
-
-      setRestoreMsg('Encrypted backup successfully restored!');
-      setRestoreError(null);
-      setRestoreFileContent(null);
-      setRestoreSecretKey('');
-    } catch (err) {
-      console.error(err);
-      setRestoreError('Decryption failed! Please check your Master Secret Key.');
-    }
-  };
-
-  const HINDI_FONTS = [
-    { id: 'Poppins', name: 'Poppins (Modern Clean)', sample: 'नमस्ते' },
-    { id: 'Rozha One', name: 'Rozha One (Bold Headline)', sample: 'डायरी' },
-    { id: 'Noto Sans Devanagari', name: 'Noto Sans (Standard Book)', sample: 'किताब' },
-    { id: 'Tiro Devanagari Hindi', name: 'Tiro Devanagari (Editorial Serif)', sample: 'अध्याय' },
-    { id: 'Kalam', name: 'Kalam (Warm Handwritten)', sample: 'यादें' },
-    { id: 'Yatra One', name: 'Yatra One (Vintage Wooden)', sample: 'यात्रा' },
-  ];
-
-  const ENGLISH_FONTS = [
-    { id: 'Plus Jakarta Sans', name: 'Plus Jakarta Sans (Crisp Modern)' },
-    { id: 'Outfit', name: 'Outfit (Geometric Editorial)' },
-    { id: 'Lora', name: 'Lora (Classic Literary Serif)' },
-    { id: 'JetBrains Mono', name: 'JetBrains Mono (Monospace Code)' },
+  const THEMES_LIST: ThemeId[] = [
+    'light',
+    'dark',
+    'amoled',
+    'system',
+    'cyberpunk-neon',
+    'minimalist-monochrome',
+    'nordic-pastel',
+    'retro-vintage',
+    'midnight-ocean',
+    'forest-emerald',
+    'sunset-terracotta',
+    'material-you',
+    'glassmorphism',
+    'neumorphism',
+    'custom',
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex select-none animate-fadeIn">
-      {/* Outside Click Backdrop */}
+    <div className="fixed inset-0 z-50 flex justify-end select-none animate-fadeIn">
+      {/* Universal Outside Click Backdrop */}
       <div
         onClick={onClose}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
       />
 
-      {/* Sliding Hamburger Drawer */}
-      <div className="relative w-full max-w-sm sm:max-w-md h-full bg-slate-900 border-r border-slate-800 shadow-2xl flex flex-col z-10 overflow-hidden transform transition-transform duration-300">
+      {/* Right-Sliding Drawer Container (Requirement #5) */}
+      <div
+        style={{
+          backgroundColor: 'var(--theme-surface)',
+          borderColor: 'var(--theme-border)',
+          color: 'var(--theme-text)',
+        }}
+        className="relative w-full max-w-sm sm:max-w-md h-full border-l shadow-2xl flex flex-col z-10 overflow-hidden transform transition-transform duration-300"
+      >
         {/* Drawer Header */}
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="p-4 border-b border-[var(--theme-border)] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 font-bold text-sm">
+            <div className="w-8 h-8 rounded-xl bg-[var(--theme-accent)]/20 border border-[var(--theme-accent)]/40 flex items-center justify-center text-[var(--theme-accent)] font-bold text-sm">
               TN
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white tracking-tight">
-                Telenotes Studio
-              </h2>
-              <p className="text-[11px] text-slate-400">Settings & Navigation</p>
+              <h2 className="text-base font-bold tracking-tight">Settings</h2>
+              <p className="text-[11px] opacity-60">Global Preferences</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-full opacity-60 hover:opacity-100 hover:bg-[var(--theme-surface-hover)] transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* PROMINENT TOP MODE SWITCH BUTTON */}
-        <div className="p-3 bg-gradient-to-r from-sky-950/40 to-slate-900 border-b border-slate-800/80">
-          {currentMode === 'diary' ? (
-            <button
-              onClick={() => {
-                onSwitchMode('books');
-                onClose();
-              }}
-              className="w-full flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-amber-600/30 to-amber-700/20 border border-amber-500/40 hover:border-amber-400 text-amber-200 hover:text-white transition-all shadow-md group active:scale-[0.99]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform">
-                  <BookOpen size={20} />
-                </div>
-                <div className="text-left">
-                  <div className="text-sm font-semibold text-amber-200">
-                    Switch to Book Writing Studio
-                  </div>
-                  <div className="text-[11px] text-amber-300/70">
-                    Open 2x2 leather covers & chapters
-                  </div>
-                </div>
-              </div>
-              <span className="text-xs font-bold px-2 py-1 rounded bg-amber-500/30 text-amber-200">
-                Go ➔
-              </span>
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                onSwitchMode('diary');
-                onClose();
-              }}
-              className="w-full flex items-center justify-between p-3 rounded-xl bg-gradient-to-r from-sky-600/30 to-sky-700/20 border border-sky-500/40 hover:border-sky-400 text-sky-200 hover:text-white transition-all shadow-md group active:scale-[0.99]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-sky-500/20 flex items-center justify-center text-sky-300 group-hover:scale-105 transition-transform">
-                  <MessageSquare size={20} />
-                </div>
-                <div className="text-left">
-                  <div className="text-sm font-semibold text-sky-200">
-                    Switch to Telegram Diary
-                  </div>
-                  <div className="text-[11px] text-sky-300/70">
-                    Open chat feed & quick notes
-                  </div>
-                </div>
-              </div>
-              <span className="text-xs font-bold px-2 py-1 rounded bg-sky-500/30 text-sky-200">
-                Go ➔
-              </span>
-            </button>
-          )}
-        </div>
-
-        {/* Tab Navigation Icons */}
-        <div className="flex items-center gap-1 p-2 bg-slate-950/40 border-b border-slate-800 overflow-x-auto no-scrollbar text-xs">
+        {/* 4 Main Tabs */}
+        <div className="flex items-center p-2 border-b border-[var(--theme-border)] gap-1 text-xs overflow-x-auto no-scrollbar">
           <button
-            onClick={() => setActiveTab('mode')}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-              activeTab === 'mode'
-                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Layout size={14} />
-            <span>Landing</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('theme')}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-              activeTab === 'theme'
-                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                : 'text-slate-400 hover:text-slate-200'
+            onClick={() => setActiveTab('themes')}
+            className={`flex-1 py-2 px-2.5 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              activeTab === 'themes'
+                ? 'bg-[var(--theme-accent)] text-white shadow-sm'
+                : 'opacity-60 hover:opacity-100'
             }`}
           >
             <Palette size={14} />
-            <span>Theme</span>
+            <span>Themes</span>
           </button>
-          <button
-            onClick={() => setActiveTab('fonts')}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-              activeTab === 'fonts'
-                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Type size={14} />
-            <span>Fonts</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('feed')}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-              activeTab === 'feed'
-                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Sliders size={14} />
-            <span>Customize</span>
-          </button>
+
           <button
             onClick={() => setActiveTab('security')}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+            className={`flex-1 py-2 px-2.5 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all ${
               activeTab === 'security'
-                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-[var(--theme-accent)] text-white shadow-sm'
+                : 'opacity-60 hover:opacity-100'
             }`}
           >
             <Shield size={14} />
             <span>Security</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('custom')}
+            className={`flex-1 py-2 px-2.5 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              activeTab === 'custom'
+                ? 'bg-[var(--theme-accent)] text-white shadow-sm'
+                : 'opacity-60 hover:opacity-100'
+            }`}
+          >
+            <Sliders size={14} />
+            <span>Customise</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('backup')}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+            className={`flex-1 py-2 px-2.5 rounded-xl font-semibold flex items-center justify-center gap-1.5 transition-all ${
               activeTab === 'backup'
-                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-[var(--theme-accent)] text-white shadow-sm'
+                : 'opacity-60 hover:opacity-100'
             }`}
           >
             <HardDrive size={14} />
@@ -449,535 +298,101 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-5 text-sm">
-          {/* TAB 1: DEFAULT LANDING PAGE */}
-          {activeTab === 'mode' && (
-            <div className="space-y-4">
+        {/* Tab Contents */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+          {/* TAB 1: 15 STRICT THEMES (Requirement #5-a) */}
+          {activeTab === 'themes' && (
+            <div className="space-y-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                  Default App Landing Page
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Choose which studio opens automatically whenever you launch the app.
+                <h3 className="text-sm font-bold">15 Strict Visual Themes</h3>
+                <p className="opacity-60 mt-0.5">
+                  Applies directly to the whole screen, cards, dialogs, and status bar.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-2.5">
-                <button
-                  onClick={() =>
-                    onUpdateSettings({ ...settings, landingPage: 'diary' })
-                  }
-                  className={`p-3.5 rounded-xl border text-left flex items-start gap-3 transition-all ${
-                    settings.landingPage === 'diary'
-                      ? 'border-sky-500 bg-sky-500/10 text-white'
-                      : 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-700'
-                  }`}
-                >
-                  <MessageSquare
-                    size={20}
-                    className={
-                      settings.landingPage === 'diary'
-                        ? 'text-sky-400 mt-0.5'
-                        : 'text-slate-500 mt-0.5'
-                    }
-                  />
-                  <div className="flex-1">
-                    <div className="font-semibold text-sm flex items-center justify-between">
-                      <span>Telegram Diary Stream</span>
-                      {settings.landingPage === 'diary' && (
-                        <Check size={16} className="text-sky-400" />
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      Fast conversational diary entries, voice recordings, and multimedia stream.
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() =>
-                    onUpdateSettings({ ...settings, landingPage: 'books' })
-                  }
-                  className={`p-3.5 rounded-xl border text-left flex items-start gap-3 transition-all ${
-                    settings.landingPage === 'books'
-                      ? 'border-amber-500 bg-amber-500/10 text-white'
-                      : 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-700'
-                  }`}
-                >
-                  <BookOpen
-                    size={20}
-                    className={
-                      settings.landingPage === 'books'
-                        ? 'text-amber-400 mt-0.5'
-                        : 'text-slate-500 mt-0.5'
-                    }
-                  />
-                  <div className="flex-1">
-                    <div className="font-semibold text-sm flex items-center justify-between">
-                      <span>Books Writing Studio</span>
-                      {settings.landingPage === 'books' && (
-                        <Check size={16} className="text-amber-400" />
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      2x2 leather book covers, multi-chapter novels, word goals, and outlines.
-                    </div>
-                  </div>
-                </button>
-              </div>
-
-              {/* Toolbar Position Preference */}
-              <div className="pt-3 border-t border-slate-800">
-                <h4 className="text-xs font-semibold text-slate-300 mb-2">
-                  Formatting Toolbar Position
-                </h4>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <button
-                    onClick={() =>
-                      onUpdateSettings({ ...settings, toolbarPosition: 'bottom' })
-                    }
-                    className={`p-2.5 rounded-lg border text-center font-medium transition-all ${
-                      settings.toolbarPosition === 'bottom'
-                        ? 'border-sky-500 bg-sky-500/20 text-sky-300'
-                        : 'border-slate-800 bg-slate-950/40 text-slate-400'
-                    }`}
-                  >
-                    Bottom Docked
-                  </button>
-                  <button
-                    onClick={() =>
-                      onUpdateSettings({ ...settings, toolbarPosition: 'top' })
-                    }
-                    className={`p-2.5 rounded-lg border text-center font-medium transition-all ${
-                      settings.toolbarPosition === 'top'
-                        ? 'border-sky-500 bg-sky-500/20 text-sky-300'
-                        : 'border-slate-800 bg-slate-950/40 text-slate-400'
-                    }`}
-                  >
-                    Top Docked
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: THEMES */}
-          {activeTab === 'theme' && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                  Preset Color Themes
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Select your favorite atmosphere or create a custom palette.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                {[
-                  {
-                    id: 'telegram-dark' as ThemeId,
-                    name: 'Telegram Dark',
-                    bg: '#0f172a',
-                    border: '#38bdf8',
-                  },
-                  {
-                    id: 'midnight-onyx' as ThemeId,
-                    name: 'Midnight Onyx',
-                    bg: '#020617',
-                    border: '#94a3b8',
-                  },
-                  {
-                    id: 'emerald-forest' as ThemeId,
-                    name: 'Emerald Forest',
-                    bg: '#064e3b',
-                    border: '#34d399',
-                  },
-                  {
-                    id: 'cyberpunk-violet' as ThemeId,
-                    name: 'Cyberpunk Violet',
-                    bg: '#1e1b4b',
-                    border: '#c084fc',
-                  },
-                  {
-                    id: 'sepia-paper' as ThemeId,
-                    name: 'Sepia Paper',
-                    bg: '#fef3c7',
-                    border: '#b45309',
-                  },
-                  {
-                    id: 'minimal-light' as ThemeId,
-                    name: 'Minimal Light',
-                    bg: '#f8fafc',
-                    border: '#0284c7',
-                  },
-                ].map((th) => (
-                  <button
-                    key={th.id}
-                    onClick={() => handleThemeChange(th.id)}
-                    className={`p-3 rounded-xl border flex flex-col justify-between h-20 transition-all ${
-                      settings.theme === th.id
-                        ? 'border-sky-400 ring-2 ring-sky-400/30'
-                        : 'border-slate-800 hover:border-slate-700'
-                    }`}
-                    style={{ backgroundColor: th.bg }}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <div
-                        className="w-3.5 h-3.5 rounded-full border"
-                        style={{ backgroundColor: th.border, borderColor: '#fff' }}
-                      />
-                      {settings.theme === th.id && (
-                        <Check size={14} className="text-sky-400" />
-                      )}
-                    </div>
-                    <span
-                      className="text-xs font-semibold text-left"
-                      style={{
-                        color:
-                          th.id === 'sepia-paper' || th.id === 'minimal-light'
-                            ? '#0f172a'
-                            : '#f8fafc',
-                      }}
-                    >
-                      {th.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Custom Theme Colors */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-300">
-                    Custom Color Palette
-                  </span>
-                  <button
-                    onClick={() => handleThemeChange('custom')}
-                    className={`text-xs px-2.5 py-1 rounded font-medium ${
-                      settings.theme === 'custom'
-                        ? 'bg-sky-500 text-white'
-                        : 'bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    Apply Custom
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="text-slate-400 block mb-1">Accent Color</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={customAccent}
-                        onChange={(e) => {
-                          setCustomAccent(e.target.value);
-                          if (settings.theme === 'custom') {
-                            onUpdateSettings({
-                              ...settings,
-                              customTheme: {
-                                ...settings.customTheme!,
-                                accentColor: e.target.value,
-                              },
-                            });
-                          }
-                        }}
-                        className="w-8 h-8 rounded border border-slate-700 cursor-pointer bg-transparent"
-                      />
-                      <span className="text-slate-300 font-mono text-[11px]">
-                        {customAccent}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Background</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={customBg}
-                        onChange={(e) => {
-                          setCustomBg(e.target.value);
-                          if (settings.theme === 'custom') {
-                            onUpdateSettings({
-                              ...settings,
-                              customTheme: {
-                                ...settings.customTheme!,
-                                bgColor: e.target.value,
-                              },
-                            });
-                          }
-                        }}
-                        className="w-8 h-8 rounded border border-slate-700 cursor-pointer bg-transparent"
-                      />
-                      <span className="text-slate-300 font-mono text-[11px]">
-                        {customBg}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: BILINGUAL FONTS */}
-          {activeTab === 'fonts' && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                  Bilingual Typography
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Select fonts for both Hindi Devanagari and English writing.
-                </p>
-              </div>
-
-              {/* Hindi Fonts */}
-              <div>
-                <div className="text-xs font-semibold text-amber-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <span>🇮🇳 Hindi Devanagari Fonts</span>
-                </div>
-                <div className="space-y-1.5">
-                  {HINDI_FONTS.map((font) => (
+              <div className="grid grid-cols-2 gap-2">
+                {THEMES_LIST.map((tId) => {
+                  const t = THEME_REGISTRY[tId];
+                  const isSelected = settings.theme === tId;
+                  return (
                     <button
-                      key={font.id}
-                      onClick={() =>
-                        onUpdateSettings({
-                          ...settings,
-                          activeFontFamily: font.id,
-                        })
-                      }
-                      className={`w-full p-2.5 rounded-lg border text-left flex items-center justify-between transition-all ${
-                        settings.activeFontFamily === font.id
-                          ? 'border-amber-400 bg-amber-500/10 text-amber-200'
-                          : 'border-slate-800 bg-slate-950/30 text-slate-300 hover:border-slate-700'
+                      key={tId}
+                      onClick={() => handleSelectTheme(tId)}
+                      className={`p-3 rounded-2xl border text-left flex flex-col justify-between h-20 transition-all ${
+                        isSelected
+                          ? 'border-[var(--theme-accent)] ring-2 ring-[var(--theme-accent)]/40 scale-[1.02]'
+                          : 'border-[var(--theme-border)] hover:opacity-90'
                       }`}
+                      style={{ backgroundColor: t.surface, color: t.text }}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="text-base text-amber-300 font-medium px-2 py-0.5 rounded bg-slate-800"
-                          style={{ fontFamily: font.id }}
-                        >
-                          {font.sample}
-                        </span>
-                        <span className="text-xs" style={{ fontFamily: font.id }}>
-                          {font.name}
-                        </span>
+                      <div className="flex items-center justify-between w-full">
+                        <div
+                          className="w-4 h-4 rounded-full border border-white/30"
+                          style={{ backgroundColor: t.accent }}
+                        />
+                        {isSelected && <Check size={14} className="text-[var(--theme-accent)]" />}
                       </div>
-                      {settings.activeFontFamily === font.id && (
-                        <Check size={16} className="text-amber-400" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* English Fonts */}
-              <div className="pt-2 border-t border-slate-800">
-                <div className="text-xs font-semibold text-sky-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <span>🌐 English Prose Fonts</span>
-                </div>
-                <div className="space-y-1.5">
-                  {ENGLISH_FONTS.map((font) => (
-                    <button
-                      key={font.id}
-                      onClick={() =>
-                        onUpdateSettings({
-                          ...settings,
-                          activeFontFamily: font.id,
-                        })
-                      }
-                      className={`w-full p-2.5 rounded-lg border text-left flex items-center justify-between transition-all ${
-                        settings.activeFontFamily === font.id
-                          ? 'border-sky-400 bg-sky-500/10 text-sky-200'
-                          : 'border-slate-800 bg-slate-950/30 text-slate-300 hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs" style={{ fontFamily: font.id }}>
-                        {font.name}
+                      <span className="font-semibold text-xs truncate max-w-full">
+                        {t.name}
                       </span>
-                      {settings.activeFontFamily === font.id && (
-                        <Check size={16} className="text-sky-400" />
-                      )}
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+
+              {/* Custom Hex Color Theme Picker */}
+              <div className="p-3.5 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] space-y-2 mt-2">
+                <span className="font-bold block">Custom Color Theme</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={customHex}
+                    onChange={(e) => {
+                      setCustomHex(e.target.value);
+                      if (settings.theme === 'custom') {
+                        onUpdateSettings({ ...settings, customHexColor: e.target.value });
+                      }
+                    }}
+                    className="w-10 h-10 rounded-xl cursor-pointer bg-transparent border border-[var(--theme-border)]"
+                  />
+                  <input
+                    type="text"
+                    value={customHex}
+                    onChange={(e) => {
+                      setCustomHex(e.target.value);
+                      if (settings.theme === 'custom') {
+                        onUpdateSettings({ ...settings, customHexColor: e.target.value });
+                      }
+                    }}
+                    className="flex-1 bg-[var(--theme-surface)] border border-[var(--theme-border)] rounded-xl px-3 py-2 font-mono text-xs"
+                  />
+                  <button
+                    onClick={() => handleSelectTheme('custom')}
+                    className="px-3 py-2 bg-[var(--theme-accent)] text-white font-bold rounded-xl"
+                  >
+                    Apply
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 4: HOMEPAGE CUSTOMIZATION */}
-          {activeTab === 'feed' && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                  Feed & Studio Customization
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Control snippet previews and tag visibility on your homepages.
-                </p>
-              </div>
-
-              {/* Diary Feed Toggles */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-3">
-                <span className="text-xs font-semibold text-sky-300 block">
-                  Diary Homepage Elements
-                </span>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Horizontal Tag / Folder Bar</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.diaryFeedConfig.showTagsBar}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        diaryFeedConfig: {
-                          ...settings.diaryFeedConfig,
-                          showTagsBar: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Plain Text Snippet Preview</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.diaryFeedConfig.snippetPreview}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        diaryFeedConfig: {
-                          ...settings.diaryFeedConfig,
-                          snippetPreview: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Date & Time on Cards</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.diaryFeedConfig.showDate}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        diaryFeedConfig: {
-                          ...settings.diaryFeedConfig,
-                          showDate: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Word Count in Snippet</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.diaryFeedConfig.showWordCount}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        diaryFeedConfig: {
-                          ...settings.diaryFeedConfig,
-                          showWordCount: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Media Badges (Audio/Stickers)</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.diaryFeedConfig.showMediaCount}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        diaryFeedConfig: {
-                          ...settings.diaryFeedConfig,
-                          showMediaCount: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-              </div>
-
-              {/* Books Grid Toggles */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-3">
-                <span className="text-xs font-semibold text-amber-300 block">
-                  Books 2x2 Studio Elements
-                </span>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Target Word Count Progress</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.booksGridConfig.showWordGoal}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        booksGridConfig: {
-                          ...settings.booksGridConfig,
-                          showWordGoal: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-amber-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer">
-                  <span>Show Book Genre Tag</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.booksGridConfig.showGenreBadge}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        ...settings,
-                        booksGridConfig: {
-                          ...settings.booksGridConfig,
-                          showGenreBadge: e.target.checked,
-                        },
-                      })
-                    }
-                    className="w-4 h-4 rounded text-amber-500 focus:ring-0 bg-slate-800 border-slate-700 cursor-pointer"
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: SECURITY & MASTER KEY */}
+          {/* TAB 2: SECURITY (PIN OR PATTERN + BIOMETRICS) (Requirement #5-b) */}
           {activeTab === 'security' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                  Military-Grade Vault Security
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Protect your writings with 4-digit PIN and 256-bit Master Key.
+                <h3 className="text-sm font-bold">App Security & Passcode</h3>
+                <p className="opacity-60 mt-0.5">
+                  Secure your diaries with a 4-digit PIN, 3x3 pattern lock, and biometrics.
                 </p>
               </div>
 
               {/* Passcode Toggle */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-3">
-                <label className="flex items-center justify-between text-xs text-slate-200 font-semibold cursor-pointer">
+              <div className="p-3.5 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] space-y-3">
+                <label className="flex items-center justify-between font-semibold cursor-pointer">
                   <span className="flex items-center gap-2">
-                    <Lock size={16} className="text-sky-400" />
-                    <span>Enable Passcode Lock</span>
+                    <Lock size={16} className="text-[var(--theme-accent)]" />
+                    <span>Enable Lock Screen</span>
                   </span>
                   <input
                     type="checkbox"
@@ -991,223 +406,346 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         },
                       })
                     }
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0 bg-slate-800 border-slate-700"
+                    className="w-4 h-4 rounded text-[var(--theme-accent)] focus:ring-0"
                   />
                 </label>
 
-                {settings.security.isPasscodeEnabled && (
-                  <div className="space-y-2 pt-2 border-t border-slate-800">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="password"
-                        maxLength={4}
-                        placeholder="New 4-digit PIN"
-                        value={newPin}
-                        onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 text-center tracking-widest"
-                      />
-                      <input
-                        type="password"
-                        maxLength={4}
-                        placeholder="Confirm PIN"
-                        value={confirmNewPin}
-                        onChange={(e) =>
-                          setConfirmNewPin(e.target.value.replace(/\D/g, ''))
-                        }
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 text-center tracking-widest"
-                      />
-                    </div>
-                    <button
-                      onClick={handleChangePin}
-                      className="w-full py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-xs font-semibold transition-colors"
-                    >
-                      Save Passcode
-                    </button>
-                    {pinChangeMsg && (
-                      <p className="text-[11px] text-sky-400 text-center">
-                        {pinChangeMsg}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Master Secret Key */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
-                  <Key size={16} />
-                  <span>Master Encryption Key</span>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  This key encrypts your local hidden vault and cloud backups. Keep it secret!
-                </p>
-
-                <div className="flex gap-2">
+                {/* Biometrics Toggle */}
+                <label className="flex items-center justify-between font-semibold cursor-pointer pt-2 border-t border-[var(--theme-border)]">
+                  <span className="flex items-center gap-2">
+                    <Fingerprint size={16} className="text-emerald-400" />
+                    <span>Unlock with Biometrics (Fingerprint)</span>
+                  </span>
                   <input
-                    type="text"
-                    placeholder="Enter new Master Secret Key"
-                    value={newMasterKey}
-                    onChange={(e) => setNewMasterKey(e.target.value)}
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 font-mono"
+                    type="checkbox"
+                    checked={settings.security.biometricsEnabled}
+                    onChange={(e) =>
+                      onUpdateSettings({
+                        ...settings,
+                        security: {
+                          ...settings.security,
+                          biometricsEnabled: e.target.checked,
+                        },
+                      })
+                    }
+                    className="w-4 h-4 rounded text-[var(--theme-accent)] focus:ring-0"
                   />
-                  <button
-                    onClick={handleChangeMasterKey}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg text-xs transition-colors"
-                  >
-                    Save
-                  </button>
+                </label>
+
+                {/* Passcode Style Switcher: PIN vs Pattern */}
+                <div className="pt-2 border-t border-[var(--theme-border)] space-y-3">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() =>
+                        onUpdateSettings({
+                          ...settings,
+                          security: { ...settings.security, passcodeType: 'pin' },
+                        })
+                      }
+                      className={`flex-1 py-1.5 rounded-xl border text-center font-bold transition-all ${
+                        settings.security.passcodeType === 'pin'
+                          ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+                          : 'border-[var(--theme-border)] opacity-60'
+                      }`}
+                    >
+                      4-Digit PIN
+                    </button>
+                    <button
+                      onClick={() =>
+                        onUpdateSettings({
+                          ...settings,
+                          security: { ...settings.security, passcodeType: 'pattern' },
+                        })
+                      }
+                      className={`flex-1 py-1.5 rounded-xl border text-center font-bold transition-all ${
+                        settings.security.passcodeType === 'pattern'
+                          ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+                          : 'border-[var(--theme-border)] opacity-60'
+                      }`}
+                    >
+                      3x3 Pattern Lock
+                    </button>
+                  </div>
+
+                  {/* 4-Digit PIN Form */}
+                  {settings.security.passcodeType === 'pin' ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="password"
+                          maxLength={4}
+                          placeholder="New 4-digit PIN"
+                          value={pinInput}
+                          onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                          className="bg-[var(--theme-surface)] border border-[var(--theme-border)] rounded-xl p-2 text-center font-mono text-sm tracking-widest"
+                        />
+                        <input
+                          type="password"
+                          maxLength={4}
+                          placeholder="Confirm PIN"
+                          value={confirmPinInput}
+                          onChange={(e) => setConfirmPinInput(e.target.value.replace(/\D/g, ''))}
+                          className="bg-[var(--theme-surface)] border border-[var(--theme-border)] rounded-xl p-2 text-center font-mono text-sm tracking-widest"
+                        />
+                      </div>
+                      <button
+                        onClick={handleSavePin}
+                        className="w-full py-2 bg-[var(--theme-accent)] text-white font-bold rounded-xl"
+                      >
+                        Set PIN Passcode
+                      </button>
+                    </div>
+                  ) : (
+                    /* 3x3 Dot Pattern Grid */
+                    <div className="space-y-3 flex flex-col items-center">
+                      <span className="text-[11px] opacity-75">
+                        Tap dots to draw pattern ({patternDots.length} connected)
+                      </span>
+                      <div className="grid grid-cols-3 gap-4 p-4 rounded-2xl bg-[var(--theme-surface)] border border-[var(--theme-border)]">
+                        {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((dot) => {
+                          const isConnected = patternDots.includes(dot);
+                          return (
+                            <button
+                              key={dot}
+                              onClick={() => {
+                                if (!patternDots.includes(dot)) {
+                                  setPatternDots([...patternDots, dot]);
+                                }
+                              }}
+                              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
+                                isConnected
+                                  ? 'bg-[var(--theme-accent)] text-white scale-110 shadow-lg'
+                                  : 'bg-[var(--theme-bg)] border border-[var(--theme-border)] opacity-60'
+                              }`}
+                            >
+                              {isConnected ? patternDots.indexOf(dot) + 1 : '•'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2 w-full">
+                        <button
+                          onClick={() => setPatternDots([])}
+                          className="flex-1 py-1.5 bg-[var(--theme-surface)] rounded-xl border border-[var(--theme-border)]"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          onClick={handleSavePattern}
+                          className="flex-1 py-1.5 bg-[var(--theme-accent)] text-white font-bold rounded-xl"
+                        >
+                          Save Pattern
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {securityMsg && (
+                    <p className="text-[11px] text-center text-emerald-400 font-semibold">
+                      {securityMsg}
+                    </p>
+                  )}
                 </div>
-                {masterKeyChangeMsg && (
-                  <p className="text-[11px] text-emerald-400">{masterKeyChangeMsg}</p>
-                )}
               </div>
             </div>
           )}
 
-          {/* TAB 6: BACKUP & RESTORE */}
+          {/* TAB 3: CUSTOMISATION (HOMEPAGE DIARY CARD PREVIEW) (Requirement #5-c) */}
+          {activeTab === 'custom' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-bold">Homepage Card Customisation</h3>
+                <p className="opacity-60 mt-0.5">
+                  Control what details appear in each diary bar preview.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] space-y-3">
+                {/* Profile Pic Toggle */}
+                <label className="flex items-center justify-between font-semibold cursor-pointer">
+                  <span>Show Profile Avatar / Icon</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.previewConfig.showAvatar}
+                    onChange={(e) =>
+                      onUpdateSettings({
+                        ...settings,
+                        previewConfig: {
+                          ...settings.previewConfig,
+                          showAvatar: e.target.checked,
+                        },
+                      })
+                    }
+                    className="w-4 h-4 rounded text-[var(--theme-accent)]"
+                  />
+                </label>
+
+                {/* Content Preview Lines */}
+                <div className="pt-2 border-t border-[var(--theme-border)] space-y-1.5">
+                  <span className="font-semibold block">Diary Content Preview</span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { val: 0 as const, label: 'Off' },
+                      { val: 1 as const, label: '1 Line' },
+                      { val: 2 as const, label: '2 Lines' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.val}
+                        onClick={() =>
+                          onUpdateSettings({
+                            ...settings,
+                            previewConfig: {
+                              ...settings.previewConfig,
+                              contentLines: opt.val,
+                            },
+                          })
+                        }
+                        className={`py-1.5 rounded-xl border text-center font-bold ${
+                          settings.previewConfig.contentLines === opt.val
+                            ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+                            : 'border-[var(--theme-border)] opacity-60'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Creation Date Toggle */}
+                <label className="flex items-center justify-between font-semibold cursor-pointer pt-2 border-t border-[var(--theme-border)]">
+                  <span>Show Creation Date</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.previewConfig.showDate}
+                    onChange={(e) =>
+                      onUpdateSettings({
+                        ...settings,
+                        previewConfig: {
+                          ...settings.previewConfig,
+                          showDate: e.target.checked,
+                        },
+                      })
+                    }
+                    className="w-4 h-4 rounded text-[var(--theme-accent)]"
+                  />
+                </label>
+
+                {/* Creation Time Toggle */}
+                <label className="flex items-center justify-between font-semibold cursor-pointer pt-2 border-t border-[var(--theme-border)]">
+                  <span>Show Creation Time</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.previewConfig.showTime}
+                    onChange={(e) =>
+                      onUpdateSettings({
+                        ...settings,
+                        previewConfig: {
+                          ...settings.previewConfig,
+                          showTime: e.target.checked,
+                        },
+                      })
+                    }
+                    className="w-4 h-4 rounded text-[var(--theme-accent)]"
+                  />
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: BACKUP & RESTORE (LOCAL AES-256 HIDDEN FOLDER & DRIVE) (Requirement #5-d) */}
           {activeTab === 'backup' && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-200 mb-1">
-                  Automated Backup & Restore
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Schedule auto-backups or recover data after reinstallation using your Master Key.
+                <h3 className="text-sm font-bold">Encrypted Backup & Recovery</h3>
+                <p className="opacity-60 mt-0.5">
+                  Total storage used: {formatBytes(storageBreakdown.totalBytes)} ({entries.length} entries)
                 </p>
               </div>
 
-              {/* Auto Backup Interval Selector */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-2.5">
-                <div className="flex items-center gap-2 text-xs font-semibold text-sky-300">
-                  <Clock size={16} />
-                  <span>Automatic Backup Schedule</span>
+              {/* Local Hidden Storage Backup */}
+              <div className="p-3.5 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] space-y-3">
+                <div className="flex items-center gap-2 font-bold text-amber-400">
+                  <FolderLock size={16} />
+                  <span>Device Hidden Folder Vault (.telenotes_vault/)</span>
                 </div>
-                <div className="grid grid-cols-4 gap-1.5 text-xs">
-                  {(['off', '6h', 'daily', 'weekly'] as const).map((interval) => (
-                    <button
-                      key={interval}
-                      onClick={() =>
-                        onUpdateSettings({
-                          ...settings,
-                          autoBackup: {
-                            ...settings.autoBackup,
-                            interval,
-                          },
-                        })
-                      }
-                      className={`py-1.5 px-2 rounded-lg font-medium capitalize border transition-all ${
-                        settings.autoBackup.interval === interval
-                          ? 'border-sky-400 bg-sky-500/20 text-sky-200'
-                          : 'border-slate-800 bg-slate-900 text-slate-400'
-                      }`}
-                    >
-                      {interval}
-                    </button>
-                  ))}
-                </div>
-                <div className="text-[11px] text-slate-500 flex items-center justify-between">
-                  <span>Last auto backup:</span>
-                  <span>
-                    {settings.autoBackup.lastBackupTimestamp
-                      ? new Date(
-                          settings.autoBackup.lastBackupTimestamp
-                        ).toLocaleDateString()
-                      : 'Never'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Hidden Device Storage Recovery (Requirement #7) */}
-              <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 space-y-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
-                  <Sparkles size={16} />
-                  <span>Hidden Device Storage Recovery</span>
-                </div>
-                <p className="text-[11px] text-emerald-200/70">
-                  App reinstall hone ke baad apna hidden storage search karke Master Key se data restore kar lega.
+                <p className="text-[11px] opacity-75">
+                  App creates a totally hidden AES-256 encrypted storage vault on the device. Set your private encryption key before backing up.
                 </p>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleInstantHiddenVaultBackup}
-                    disabled={isBackingUp}
-                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <HardDrive size={14} />
-                    <span>Save Hidden Backup Now</span>
-                  </button>
-                </div>
-                {hiddenVaultMsg && (
-                  <p className="text-[11px] text-emerald-400 text-center font-medium">
-                    {hiddenVaultMsg}
-                  </p>
-                )}
-
-                <div className="pt-2 border-t border-emerald-800/40 space-y-2">
+                <div className="space-y-2">
                   <input
                     type="password"
-                    placeholder="Enter Master Key to Restore from Hidden Storage"
-                    value={restoreSecretKey}
-                    onChange={(e) => setRestoreSecretKey(e.target.value)}
-                    className="w-full bg-slate-900 border border-emerald-700/60 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 font-mono"
+                    placeholder="Set Encryption Secret Key"
+                    value={userBackupKey}
+                    onChange={(e) => setUserBackupKey(e.target.value)}
+                    className="w-full bg-[var(--theme-surface)] border border-[var(--theme-border)] rounded-xl p-2 text-xs"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirm Encryption Key"
+                    value={confirmBackupKey}
+                    onChange={(e) => setConfirmBackupKey(e.target.value)}
+                    className="w-full bg-[var(--theme-surface)] border border-[var(--theme-border)] rounded-xl p-2 text-xs"
                   />
                   <button
-                    onClick={handleRestoreFromHiddenStorage}
-                    className="w-full py-1.5 bg-slate-800 hover:bg-emerald-700 text-emerald-300 hover:text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <RefreshCw size={14} />
-                    <span>Restore from Hidden Storage</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Manual Encrypted File Export / Import */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 space-y-3">
-                <span className="text-xs font-semibold text-slate-300 block">
-                  Encrypted File Vault (.telenotes)
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleDownloadBackup}
-                    disabled={isBackingUp}
-                    className="flex-1 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                    onClick={handleCreateHiddenVaultBackup}
+                    className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center justify-center gap-1.5"
                   >
                     <Download size={14} />
-                    <span>Export Encrypted Vault</span>
+                    <span>Backup to Device Hidden Folder</span>
                   </button>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800 space-y-2">
-                  <label className="block text-[11px] text-slate-400">
-                    Upload .telenotes backup file to restore:
-                  </label>
+                {/* Restore upon Reinstall */}
+                <div className="pt-3 border-t border-[var(--theme-border)] space-y-2">
+                  <span className="font-semibold block text-[11px]">
+                    Restore after Reinstalling App
+                  </span>
                   <input
-                    type="file"
-                    accept=".telenotes,.json"
-                    onChange={handleFileChange}
-                    className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-sky-300 hover:file:bg-slate-700"
+                    type="password"
+                    placeholder="Enter your Encryption Key to Restore"
+                    value={restoreKey}
+                    onChange={(e) => setRestoreKey(e.target.value)}
+                    className="w-full bg-[var(--theme-surface)] border border-[var(--theme-border)] rounded-xl p-2 text-xs"
                   />
-                  {restoreFileContent && (
-                    <button
-                      onClick={handleDecryptAndRestoreFile}
-                      className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <Upload size={14} />
-                      <span>Decrypt & Restore File</span>
-                    </button>
-                  )}
+                  <button
+                    onClick={handleRestoreFromHiddenVault}
+                    className="w-full py-2 bg-[var(--theme-surface-hover)] border border-[var(--theme-border)] font-bold rounded-xl flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw size={14} />
+                    <span>Verify Key & Restore Vault</span>
+                  </button>
                 </div>
 
-                {restoreMsg && (
-                  <p className="text-[11px] text-emerald-400 text-center font-medium">
-                    {restoreMsg}
+                {backupStatusMsg && (
+                  <p className="text-[11px] text-emerald-400 text-center font-semibold">
+                    {backupStatusMsg}
                   </p>
                 )}
-                {restoreError && (
-                  <p className="text-[11px] text-rose-400 text-center font-medium">
-                    {restoreError}
+                {backupErrorMsg && (
+                  <p className="text-[11px] text-rose-400 text-center font-semibold">
+                    {backupErrorMsg}
                   </p>
                 )}
+              </div>
+
+              {/* Google Drive Cloud Backup */}
+              <div className="p-3.5 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] space-y-2.5">
+                <div className="flex items-center gap-2 font-bold text-sky-400">
+                  <Cloud size={16} />
+                  <span>Google Drive Encrypted Vault</span>
+                </div>
+                <p className="text-[11px] opacity-75">
+                  Exports your diaries in a single AES-256 encrypted .telenotes vault file ready for Google Drive backup.
+                </p>
+                <button
+                  onClick={handleExportGoogleDriveVault}
+                  className="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl flex items-center justify-center gap-1.5"
+                >
+                  <Upload size={14} />
+                  <span>Export Encrypted Cloud Vault</span>
+                </button>
               </div>
             </div>
           )}
