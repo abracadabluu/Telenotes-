@@ -85,3 +85,26 @@
 .animate-shake {
   animation: shake 0.4s ease-in-out;
 }
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-20px) scale(1.1);
+  }
+  80% {
+    opacity: 0.9;
+    transform: translateY(-160px) scale(1);
+  }
+  100% {
+    transform: translateY(-240px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+.animate-floatUp {
+  animation: floatUp 3.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}

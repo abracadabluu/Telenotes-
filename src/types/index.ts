@@ -1,71 +1,78 @@
-export interface AudioRecording {
+// Telegram Voice Spaces & Calling Client Data Models
+
+export type ParticipantRole = 'host' | 'co-host' | 'speaker' | 'listener';
+
+export interface TelegramUser {
   id: string;
-  url: string; // base64 or blob url
-  duration: number; // in seconds
-  date: number;
-  title: string;
+  username: string;
+  firstName: string;
+  lastName?: string;
+  phone: string;
+  avatarUrl: string;
+  bio?: string;
+  isVerified?: boolean;
 }
 
-export interface CanvasMediaItem {
+export interface RoomRules {
+  maxSpeakers: number; // e.g. 10 (or unlimited within Telegram limits)
+  allowAudienceToSpeak: boolean; // if false, only host can invite speakers
+  muteOnJoin: boolean; // whether new speakers join muted
+  requireApproval: boolean; // listeners must raise hand and get approved
+  recordingEnabled: boolean; // host records the space audio
+}
+
+export interface SpaceParticipant {
+  user: TelegramUser;
+  role: ParticipantRole;
+  isMuted: boolean;
+  isSpeaking: boolean;
+  audioLevel: number; // 0 to 100 for live waveform visualization
+  hasRaisedHand: boolean;
+  joinedAt: number;
+}
+
+export interface FloatingReaction {
   id: string;
-  type: 'image' | 'sticker' | 'gif';
-  url: string;
-  name: string;
-  x: number; // percentage (0 to 100) or px
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  filter?: string;
-  brightness?: number;
-  contrast?: number;
-  saturation?: number;
+  emoji: string;
+  userId: string;
+  userName: string;
+  x: number; // percentage across screen 10-90%
 }
 
-export interface EntryReminder {
-  dueTimestamp: number;
-  title: string;
-  isTriggered: boolean;
-  repeat?: 'none' | 'daily' | 'weekly';
-}
-
-export interface CanvasBackground {
-  url: string;
-  opacity: number; // 0.05 to 1.0
-}
-
-export interface DiaryEntry {
+export interface VoiceRoom {
   id: string;
+  code: string; // 6-character room code, e.g. "TL-8492"
   title: string;
-  content: string; // HTML rich content
-  plainText: string;
+  topic: string;
+  hostId: string;
+  hostUser: TelegramUser;
   createdAt: number;
-  updatedAt: number;
-  avatar: {
-    type: 'emoji' | 'image' | 'gif';
-    value: string;
-    bgColor?: string;
-  };
-  folderId: string;
-  isPinned: boolean;
-  mood?: string;
-  audioRecordings: AudioRecording[];
-  media: CanvasMediaItem[];
-  canvasBackground?: CanvasBackground;
-  reminder?: EntryReminder;
-  tags: string[];
-  fontFamily?: string;
-  fontSize?: number;
+  isLive: boolean;
+  rules: RoomRules;
+  participants: Record<string, SpaceParticipant>;
+  handRaiseQueue: string[]; // array of userIds
+  isRecording?: boolean;
 }
 
-export interface Folder {
-  id: string;
-  name: string;
-  icon: string;
-  color: string;
-  isSystem?: boolean;
+export type CallStatus = 'calling' | 'ringing' | 'connected' | 'ended';
+
+export interface DirectCallSession {
+  callId: string;
+  peerUser: TelegramUser;
+  isIncoming: boolean;
+  status: CallStatus;
+  startTime?: number;
+  durationSeconds: number;
+  isMuted: boolean;
+  isSpeakerOn: boolean;
 }
 
+export interface TelegramApiConfig {
+  apiId: string;
+  apiHash: string;
+}
+
+// Backwards-Compatible Types for Storage & Canvas Utilities
 export type ThemeId =
   | 'light'
   | 'dark'
@@ -83,12 +90,82 @@ export type ThemeId =
   | 'neumorphism'
   | 'custom';
 
+export type ExportFormat =
+  | 'pdf' | 'txt' | 'docx' | 'md' | 'rtf' | 'doc' | 'odt' | 'fodt'
+  | 'epub' | 'mobi' | 'tex' | 'rst' | 'asciidoc' | 'pages' | 'wpd' | 'xps';
+
+export interface EntryAvatar {
+  type: 'emoji' | 'image' | 'gif';
+  value: string;
+  bgColor?: string;
+}
+
+export interface AudioRecording {
+  id: string;
+  url: string;
+  duration: number;
+  date: number;
+  title?: string;
+}
+
+export interface CanvasMediaItem {
+  id: string;
+  type: 'image' | 'sticker' | 'gif';
+  url: string;
+  name?: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  filter?: string;
+}
+
+export interface EntryReminder {
+  dueTimestamp: number;
+  title: string;
+  isTriggered: boolean;
+}
+
+export interface CanvasBackground {
+  url: string;
+  opacity: number;
+}
+
 export interface CustomFont {
   id: string;
   name: string;
-  dataUrl: string; // base64 of TTF/WOFF/OTF
+  dataUrl: string;
   fontFamily: string;
   fileName: string;
+}
+
+export interface DiaryEntry {
+  id: string;
+  title: string;
+  content: string;
+  plainText: string;
+  createdAt: number;
+  updatedAt: number;
+  avatar: EntryAvatar;
+  folderId?: string;
+  isPinned: boolean;
+  audioRecordings: AudioRecording[];
+  media: CanvasMediaItem[];
+  canvasBackground?: CanvasBackground;
+  reminder?: EntryReminder;
+  tags: string[];
+  fontFamily?: string;
+}
+
+export interface StorageBreakdown {
+  totalBytes: number;
+  textBytes?: number;
+  mediaBytes: number;
+  audioBytes: number;
+  diariesBytes: number;
+  fontsBytes: number;
+  percentageUsed?: number;
 }
 
 export interface AppSettings {
@@ -97,53 +174,26 @@ export interface AppSettings {
   activeFontFamily: string;
   previewConfig: {
     showAvatar: boolean;
-    contentLines: 0 | 1 | 2; // 0 = off, 1 line, 2 lines
+    contentLines: number;
     showDate: boolean;
     showTime: boolean;
   };
   security: {
     isPasscodeEnabled: boolean;
     passcodeType: 'pin' | 'pattern';
-    passcodeHash: string; // SHA-256 hash of PIN or pattern path
-    patternPoints: number[]; // e.g. [0, 1, 2, 5]
-    salt: string;
+    passcodeHash?: string;
+    patternPoints?: number[];
+    salt?: string;
     biometricsEnabled: boolean;
-    autoLockDelayMinutes: number; // 0 = immediate, 1, 5, 15, 30, -1 = never
+    autoLockDelayMinutes: number;
     isSetupDone: boolean;
-    masterKeyHash: string;
+    masterKeyHash?: string;
     masterKeyHint?: string;
   };
   backupConfig: {
     hiddenVaultKeySet: boolean;
-    autoBackupInterval: 'off' | '6h' | 'daily' | 'weekly';
-    lastBackupTimestamp?: number;
-    hiddenVaultKey?: string;
+    autoBackupInterval: 'hourly' | 'daily' | 'weekly' | 'manual';
+    lastBackupTimestamp: number;
   };
   customFonts: CustomFont[];
 }
-
-export interface StorageBreakdown {
-  diariesBytes: number;
-  audioBytes: number;
-  mediaBytes: number;
-  fontsBytes: number;
-  totalBytes: number;
-}
-
-export type ExportFormat =
-  | 'txt'
-  | 'rtf'
-  | 'doc'
-  | 'docx'
-  | 'odt'
-  | 'pages'
-  | 'wpd'
-  | 'tex'
-  | 'md'
-  | 'rst'
-  | 'asciidoc'
-  | 'pdf'
-  | 'epub'
-  | 'mobi'
-  | 'xps'
-  | 'fodt';

@@ -1,6 +1,6 @@
-# Canva-Style Formatting Suite, Native Keyboard & Android APK Full-Screen Fix Plan
+# TeleSpaces: Telegram Voice Spaces & Calling Client Implementation Plan
 
-Address all text contrast issues across the 15 themes, provide an exhaustive Canva-style docked formatting toolbar that preserves selection and applies every single requested styling/alignment tool, restore natural keyboard and clipboard behavior, and optimize the GitHub Actions workflow (`build-apk.yml`) and Android native configuration to guarantee full-screen edge-to-edge rendering.
+Pivoting the application from the diary studio into **TeleSpaces** — a dedicated Telegram voice client engineered exclusively for **1-on-1 Voice Calling** and **Twitter Spaces-style Group Voice Chat Rooms** accessible via unique Room Codes, with host stage moderation and participant rules.
 
 ---
 
@@ -8,80 +8,106 @@ Address all text contrast issues across the 15 themes, provide an exhaustive Can
 
 > [!IMPORTANT]
 > The following decisions were confirmed with the user:
-> - **Canva-Style Docked Bar**: Text editing tools will be organized in a horizontal scrollable dock directly above the keyboard with quick-tap category tabs opening compact popovers (Styles, Paragraph & Lists, Spacing, Typography & TTF Fonts, Media & Filters, Audio).
-> - **Selection-Preserving Tool Execution**: Use `onMouseDown={(e) => e.preventDefault()}` and DOM selection range caching so that tapping any formatting button directly modifies the selected text in `contentEditable` without deselecting or dropping keyboard focus.
-> - **GitHub Actions APK Workflow Optimization**: Fix `.github/workflows/build-apk.yml` so it does not destroy custom `MainActivity.java` or `styles.xml` with `rm -rf android`, and injects edge-to-edge window flags, transparent status bar, and Capacitor status-bar/keyboard settings into the APK build.
-> - **Dynamic Accent Text Contrast**: Introduce `--theme-accent-contrast` across all 15 themes (e.g. in Minimalist Monochrome where accent is pure white `#ffffff`, button text will be stark `#000000` instead of invisible white).
-> - **Natural Keyboard & Full Clipboard Operation**: Strip `select-none` from parent containers, ensure standard native clipboard text paste flows through unimpeded, and retain Gboard GIF extraction.
+> - **Full Pivot**: Drop the diary concept entirely in favor of a specialized Telegram Voice Spaces & Calling client.
+> - **Authentication Flow**: Official Telegram phone number login with OTP code verification (with user-provided `api_id` and `api_hash`).
+> - **Twitter Spaces Experience**: 3-tier room hierarchy (Host, Speakers, Listeners), Raise Hand queue, host-enforced room rules, live audio frequency visualizers, and room code sharing.
+> - **Direct Calling**: Dedicated dialer and contact calling with full audio controls (Mute, Speaker, Device selection, Call timer).
 
 ---
 
-## 1. Problem Diagnosis & Root Causes
+## 1. System Architecture
 
-1. **Theme Button Text Invisibility**:
-   - `TelegramFeed.tsx` and other buttons used hardcoded `text-white` with `backgroundColor: var(--theme-accent)`.
-   - In `minimalist-monochrome`, `accent` is `#ffffff`. White text on white background made the text completely invisible.
-2. **Text Formatting Tools Failing to Apply**:
-   - Tapping buttons in HTML `contentEditable` steals focus and destroys the active `window.getSelection()` range before `document.execCommand` or DOM replacement executes.
-   - The user also noticed missing tools from their initial comprehensive list (e.g. Strong vs Bold, Emphasis vs Italic, Overline, Small Text, Mark, H1-H20, Definition lists, Line height, Letter spacing, First-line & hanging indents, RTL/LTR).
-3. **Keyboard & Clipboard Malfunction**:
-   - Container elements had `select-none` (`user-select: none`), which in Android WebView disables the native text cursor, long-press magnifying glass, context menu, and clipboard paste actions.
-   - `onPaste` had `e.preventDefault()` inside an incomplete check that blocked standard text paste from the Android clipboard.
-4. **Full-Screen APK Not Working (GitHub Actions Issue)**:
-   - In `.github/workflows/build-apk.yml`, line 128:
-     `if [ ! -f "android/gradlew" ]; then rm -rf android && npx cap add android; fi`
-     Because `gradlew` wasn't tracked, GitHub Actions was deleting the `/android` folder and generating a default Capacitor template on every build, wiping out all custom `WindowCompat.setDecorFitsSystemWindows(false)` and `styles.xml` translucent status bar settings!
-
----
-
-## 2. Technical Architecture & Proposed Changes
-
-### A. Theme Engine Contrast Fix (`AndroidContainer.tsx`)
-Add `accentContrast` to `ThemeConfig` and register for all 15 themes:
-- Minimalist Monochrome: `accent: '#ffffff'`, `accentContrast: '#000000'`
-- Light Theme: `accent: '#0284c7'`, `accentContrast: '#ffffff'`
-- Dark Theme: `accent: '#38bdf8'`, `accentContrast: '#0f172a'`
-- Cyberpunk Neon: `accent: '#f43f5e'`, `accentContrast: '#ffffff'`
-- Retro Vintage: `accent: '#b45309'`, `accentContrast: '#ffffff'`
-Set `--theme-accent-contrast` in root CSS variables, and update all action buttons to use `color: var(--theme-accent-contrast)`.
-
-### B. Canva-Style Docked Formatting Toolbar (`DiaryCanvas.tsx`)
-Create a Canva-style horizontal docked toolbar directly above the keyboard with selection persistence:
-1. **Inline / Character Styles Popover**:
-   - Select All, Cut, Copy, Bold, Strong (`<strong>`), Italic, Emphasis (`<em>`), Underline, Strikethrough, Delete (`<del>`), Highlight / Mark (`<mark>` with color palette), Superscript, Subscript, Monospace / Inline Code (`<code>`), Small Text (`<small>`), Overline (`text-decoration: overline`).
-   - ForeColor / Text Color picker, Background Color / Fill Color picker, WebLink creator (`createLink`).
-   - Structural Styles: Title, Subtitle, Section Headings (interactive picker for **H1, H2, H3, H4, H5, H6 through H20**), Display Text, Hero Text, Caption, Label.
-2. **Paragraph, Lists & Layout Popover**:
-   - Lists: Unordered List (`<ul>`), Bulleted List, Ordered List (`<ol>`), Numbered List, Task / Checklist (`<ul class="task-list">`), Definition List (`<dl><dt><dd>`), Description List, Nested List.
-   - Alignment: Align Left, Align Center, Align Right, Justify.
-   - Spacing & Indentation: Line Height / Leading (1.0, 1.2, 1.5, 1.8, 2.0), Paragraph Spacing, Letter Spacing (Tracking), Word Spacing, First-line Indent, Hanging Indent.
-   - Text Direction: Left-to-Right (LTR) and Right-to-Left (RTL) toggle.
-3. **Selection Preservation Technique**:
-   - Cache `range` on every `selectionchange` / `mouseup` / `touchend`.
-   - All toolbar buttons use `onMouseDown={(e) => e.preventDefault()}` so focus remains in the editor.
-   - If range is collapsed or detached, restore cached range before executing the styling command.
-
-### C. Normal Keyboard & Clipboard Restoration
-1. Remove `select-none` from `AndroidContainer`, `DiaryCanvas`, and editor containers; apply `select-text` explicitly to the editable area.
-2. Update `onPaste`:
-   - Inspect clipboard data: If item is image/GIF file blob, prevent default and add to media layer.
-   - If item is text or HTML, **do NOT prevent default** — let the browser/WebView natively paste text from the system clipboard.
-3. Keep `inputMode="text"`, `autoCapitalize="sentences"`, `spellCheck={true}`, and ensure Gboard opens standard Qwerty layout without forced numbers row.
-
-### D. GitHub Actions Workflow (`build-apk.yml`) & Android Edge-to-Edge Fix
-1. In `build-apk.yml`:
-   - Remove destructive `rm -rf android`.
-   - If `gradlew` wrapper is missing, run `gradle wrapper` or check wrapper files into git.
-   - Add automated step in CI that guarantees `MainActivity.java` contains `WindowCompat.setDecorFitsSystemWindows(window, false)` and `styles.xml` has transparent status bar attributes.
-   - Set Capacitor config with proper status bar overlays:
-     `"StatusBar": { "overlays": true, "style": "DARK" }`.
-2. Commit `android/gradle/wrapper/gradle-wrapper.jar` and `android/gradlew` if needed so the build is 100% reproducible.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 TeleSpaces Client Application                │
+├──────────────────────────────┬──────────────────────────────┤
+│      Authentication Layer    │       Audio Engine Layer     │
+│   • Phone Number Input       │   • WebRTC MediaStream Mesh  │
+│   • Telegram API ID & Hash   │   • Web Audio AnalyserNode   │
+│   • OTP Code Verification    │   • Active Speaker Detection │
+│   • Secure Session Store     │   • Audio Waveform Canvas    │
+├──────────────────────────────┼──────────────────────────────┤
+│       Spaces / Voice Rooms   │       Direct Voice Calls     │
+│   • Unique 6-Digit Room Code │   • 1-on-1 Dial by Username  │
+│   • Host Rules Engine        │   • Outgoing / Incoming Ring │
+│   • Stage & Raise-Hand Queue │   • In-Call Duration Timer   │
+│   • Live Floating Reactions  │   • Proximity / Audio Output │
+└──────────────────────────────┴──────────────────────────────┘
+```
 
 ---
 
-## 3. Verification & Testing Strategy
-1. **Button Contrast**: Check Minimalist Monochrome theme: Verify "+ Write New Diary" text is clearly visible and readable in black against white accent.
-2. **Canva Toolbar**: Select text on canvas and tap Bold, Highlight, ForeColor, H1-H20, and Overline. Verify styling applies immediately to the selected characters.
-3. **Paragraph & Spacing**: Test Lists, Alignments, Line Height, Letter Spacing, and LTR/RTL switching.
-4. **Clipboard & Keyboard**: Copy text from outside, paste inside editor. Verify normal text pasting works. Test Gboard GIF insertion.
-5. **Build & Lint**: Run `compile_applet` and `lint_applet` to verify 0 errors.
+## 2. Proposed Changes & Implementation Steps
+
+### A. Core Models & Type Definitions (`src/types/index.ts`)
+- `TelegramUser`: ID, username, firstName, lastName, phone, avatarUrl, isVerified.
+- `VoiceRoom` (Space):
+  - `id`, `code` (e.g., `SPACE-8492`), `title`, `topic`, `createdAt`, `hostId`.
+  - `rules`: `maxSpeakers`, `allowAudienceToSpeak`, `muteOnJoin`, `requireApproval`, `recordingEnabled`.
+  - `participants`: Map of user IDs to role (`host` | `co-host` | `speaker` | `listener`), `isMuted`, `isSpeaking`, `raisedHandTimestamp`.
+  - `activeReactions`: Floating emoji feedback (`❤️`, `🔥`, `👏`, `💯`, `🎉`).
+- `DirectCallSession`: `callId`, `peerUser`, `status` (`calling` | `ringing` | `connected` | `ended`), `startTime`, `isMuted`, `isSpeakerOn`.
+
+### B. Telegram Authentication & Session Service (`src/services/telegramAuth.ts`)
+- Client-side Telegram MTProto / API proxy service:
+  - Phone number validation and country code picker.
+  - Send authentication code request (`auth.sendCode`).
+  - Sign in with code (`auth.signIn`) and optional 2FA password (`auth.checkPassword`).
+  - Store encrypted session string and user profile in persistent storage.
+  - Pre-configure default client credentials with option for user to input their custom `api_id` and `api_hash`.
+
+### C. Real-Time WebRTC Audio & Voice Visualizer Engine (`src/services/voiceEngine.ts`)
+- Web Audio API integration:
+  - `AudioContext` with `AnalyserNode` for real-time frequency analysis.
+  - Active speaker voice activity detection (VAD): Highlights avatar with animated glowing rings when voice volume crosses speech threshold.
+  - Waveform visualizer canvas rendering dynamic audio bars.
+  - Mic control: `setMuted(boolean)`, noise suppression, echo cancellation.
+
+### D. Twitter Spaces Voice Room (`src/components/spaces/SpaceRoomView.tsx`)
+- **Stage (Top Area)**:
+  - Host and Co-Hosts with golden crown badges.
+  - Speakers grid with real-time waveform halos when talking.
+  - Mute/Unmute toggle indicator on each speaker avatar.
+- **Audience Area (Bottom Scrollable)**:
+  - Listeners grid with profile pictures and names.
+  - "Raised Hand" badge indicators for listeners requesting the mic.
+- **Host Control Panel**:
+  - Accept/Deny speaker requests.
+  - "Mute All" emergency button.
+  - Room rule editor (change max speakers, toggle audience speaking permissions).
+  - End Space confirmation.
+- **Listener Action Bar**:
+  - ✋ "Raise Hand" / "Lower Hand" button.
+  - Quick emoji reactions button (bursts animated floating hearts/claps across the screen).
+  - Share Room Code button (copyable link & code).
+  - "Leave Quietly" button.
+
+### E. Direct 1-on-1 Voice Calling (`src/components/calls/DirectCallView.tsx`)
+- Full-screen calling interface:
+  - Caller/Receiver avatar with pulsating connection ripple effect.
+  - Call status: "Calling...", "Ringing...", "Connected (02:45)".
+  - Controls: Mute Microphone, Speaker Toggle, Keypad, End Call.
+
+### F. Home Dashboard & Room Discovery (`src/components/home/SpacesDashboard.tsx`)
+- Header: User Profile (Telegram avatar, username), Connection status, Start New Space button.
+- Quick Join: Enter 6-digit Room Code to immediately enter any active voice space.
+- Active Spaces Feed: List of ongoing voice rooms with live listener counts, topic tags, and "Join as Listener" button.
+- Recent Direct Calls tab.
+- "Create a Space" modal: Set title, select topic, configure host rules, and generate room code.
+
+### G. Android Edge-to-Edge & Performance Integration
+- Clean, dark Telegram theme (Deep obsidian `#0e1621` and `#17212b`).
+- Set Capacitor settings for microphone audio recording and background audio stream preservation.
+
+---
+
+## 3. Verification & Testing Plan
+1. **Login Flow**: Test phone number format, OTP entry simulation, and custom API ID/Hash inputs.
+2. **Space Creation & Room Codes**: Create a space, verify unique 6-digit code generation, and test joining from another session or tab via code.
+3. **Host Stage Moderation**:
+   - Test raising hand as a listener.
+   - Host approves request -> listener promotes to speaker.
+   - Host mutes speaker or demotes back to listener.
+4. **Audio Engine & Visualizers**: Verify microphone audio stream captures real mic input, drives waveform visualizer, and illuminates speaking rings.
+5. **Direct Calls**: Test initiating a call, timer duration, mute/speaker toggles, and end call flow.
+6. **Build Verification**: Run `compile_applet` and `lint_applet` to confirm 0 compilation errors.
