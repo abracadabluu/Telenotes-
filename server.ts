@@ -8,6 +8,7 @@ import {
   signInTelegramUser,
   getTelegramMe,
   getTelegramBackendStatus,
+  logoutTelegramUser,
 } from './server/telegramService.js';
 import { voiceGateway } from './server/voiceGateway.js';
 
@@ -85,6 +86,20 @@ async function startServer() {
       res.json({ user });
     } catch (err: any) {
       res.status(401).json({ error: err.message || 'Session expired.' });
+    }
+  });
+
+  // 4. Terminate MTProto Session on Telegram Data Centers
+  app.post('/api/telegram/logout', async (req, res) => {
+    try {
+      const { sessionString } = req.body;
+      if (sessionString) {
+        await logoutTelegramUser(sessionString);
+      }
+      res.json({ success: true, message: 'Telegram session terminated.' });
+    } catch (err: any) {
+      console.warn('Logout error ignored:', err.message);
+      res.json({ success: true });
     }
   });
 

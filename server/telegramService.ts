@@ -211,3 +211,21 @@ export async function getTelegramMe(sessionString: string) {
     throw new Error(error.errorMessage || error.message || 'Session expired.');
   }
 }
+
+// 4. Official MTProto Logout (Terminates session on Telegram Data Center)
+export async function logoutTelegramUser(sessionString: string): Promise<boolean> {
+  try {
+    const { client } = await getOrCreateClient(sessionString);
+    await client.invoke(new Api.auth.LogOut());
+    
+    // Purge cached client
+    const cacheKey = `sess_${sessionString.slice(0, 16)}`;
+    activeClients.delete(cacheKey);
+    console.log('Successfully terminated MTProto session on Telegram DC.');
+    return true;
+  } catch (error: any) {
+    console.error('MTProto logout warning:', error.message || error);
+    return false;
+  }
+}
+

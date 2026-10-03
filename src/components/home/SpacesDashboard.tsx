@@ -140,15 +140,19 @@ export const SpacesDashboard: React.FC<SpacesDashboardProps> = ({
           </div>
         </div>
 
-        {/* Right Corner: TeleSpaces Branding & Logout */}
+        {/* Right Corner: TeleCall Branding & Logout */}
         <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#242f3d] text-[11px] font-bold text-sky-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+            <span>TeleCall</span>
+          </div>
           <button
-            onClick={() => {
-              logoutTelegram();
+            onClick={async () => {
+              await logoutTelegram();
               onLogout();
             }}
             className="p-2 rounded-full bg-[#242f3d] hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
-            title="Log Out"
+            title="Log Out from Telegram"
           >
             <LogOut size={16} />
           </button>

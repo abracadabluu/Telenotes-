@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Telenotes Dev</string>
-    <string name="title_activity_main">Telenotes Dev</string>
+    <string name="app_name">TeleCall</string>
+    <string name="title_activity_main">TeleCall</string>
     <string name="package_name">com.telenotes.dev</string>
     <string name="custom_url"></string>
 </resources>

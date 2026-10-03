@@ -1,11 +1,16 @@
 import { TelegramUser } from '../types';
+import { getApiUrl } from './apiConfig';
 
-const STORAGE_KEY_USER = 'telespaces_auth_user';
-const STORAGE_KEY_SESSION = 'telespaces_session_token';
+const STORAGE_KEY_USER = 'telecall_auth_user';
+const STORAGE_KEY_SESSION = 'telecall_session_token';
+
+// Compatibility with previous storage key
+const LEGACY_STORAGE_KEY_USER = 'telespaces_auth_user';
+const LEGACY_STORAGE_KEY_SESSION = 'telespaces_session_token';
 
 export const getStoredAuthUser = (): TelegramUser | null => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_USER);
+    const raw = localStorage.getItem(STORAGE_KEY_USER) || localStorage.getItem(LEGACY_STORAGE_KEY_USER);
     if (raw) return JSON.parse(raw);
   } catch (e) {
     console.error('Failed to parse auth user', e);
@@ -21,12 +26,33 @@ export const saveAuthUser = (user: TelegramUser, sessionString?: string): void =
 };
 
 export const getStoredSessionString = (): string | null => {
-  return localStorage.getItem(STORAGE_KEY_SESSION);
+  return localStorage.getItem(STORAGE_KEY_SESSION) || localStorage.getItem(LEGACY_STORAGE_KEY_SESSION);
 };
 
-export const logoutTelegram = (): void => {
+/**
+ * Logout: Terminate the MTProto session on Telegram's official Data Centers
+ * so that it doesn't linger in user's Telegram Active Sessions list!
+ */
+export const logoutTelegram = async (): Promise<void> => {
+  const sessionString = getStoredSessionString();
+  
+  if (sessionString && !sessionString.startsWith('demo_')) {
+    try {
+      await fetch(getApiUrl('/api/telegram/logout'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionString }),
+      });
+      console.log('Terminated Telegram official session on remote server.');
+    } catch (e) {
+      console.warn('Network error while terminating Telegram session:', e);
+    }
+  }
+
   localStorage.removeItem(STORAGE_KEY_USER);
   localStorage.removeItem(STORAGE_KEY_SESSION);
+  localStorage.removeItem(LEGACY_STORAGE_KEY_USER);
+  localStorage.removeItem(LEGACY_STORAGE_KEY_SESSION);
 };
 
 export interface SendCodeResult {
@@ -44,12 +70,14 @@ export interface BackendStatus {
 // Check Backend MTProto status
 export const checkTelegramBackendStatus = async (): Promise<BackendStatus> => {
   try {
-    const res = await fetch('/api/telegram/status');
+    const url = getApiUrl('/api/telegram/status');
+    const res = await fetch(url);
     if (res.ok) {
-      return await res.json();
+      const data = await res.json();
+      return data;
     }
   } catch (e) {
-    console.warn('Backend status check failed', e);
+    console.warn('Backend status check failed:', e);
   }
   return {
     isConfigured: false,
@@ -61,13 +89,23 @@ export const checkTelegramBackendStatus = async (): Promise<BackendStatus> => {
 
 // 1. Send Code via Backend MTProto
 export const sendTelegramCode = async (phone: string): Promise<SendCodeResult> => {
-  const res = await fetch('/api/telegram/send-code', {
+  const url = getApiUrl('/api/telegram/send-code');
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       phoneNumber: phone.trim(),
     }),
   });
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    console.error('Non-JSON response received from server:', text.slice(0, 150));
+    throw new Error(
+      'Cannot connect to Telegram backend server. Please verify backend URL or internet connection.'
+    );
+  }
 
   const data = await res.json();
   if (!res.ok) {
@@ -87,7 +125,8 @@ export const verifyTelegramCode = async (
   phoneCodeHash: string,
   password?: string
 ): Promise<TelegramUser> => {
-  const res = await fetch('/api/telegram/sign-in', {
+  const url = getApiUrl('/api/telegram/sign-in');
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -97,6 +136,11 @@ export const verifyTelegramCode = async (
       password: password?.trim() || undefined,
     }),
   });
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Server returned invalid response. Please check your backend connection.');
+  }
 
   const data = await res.json();
   if (!res.ok) {

@@ -1,68 +1,62 @@
-# Developer Credentials Isolation & Production Telegram MTProto Backend Plan
+# TeleCall: MTProto Session Logout, Android WebView API Bridge & TeleCall Rebranding Plan
 
-This plan addresses moving the developer credentials (`api_id` and `api_hash`) out of the end-user login interface into server configuration (`.env` and `server/config.ts`), fixing the Telegram authentication flow, and providing a clean, authentic Telegram login experience with full backend MTProto synchronization.
-
----
-
-## 1. Architectural Decisions
-
-1. **Developer vs End-User Separation**:
-   - `api_id` and `api_hash` belong exclusively to the application developer. They are stored securely in `server/config.ts` and read from environment variables (`.env`).
-   - The end-user login modal will strictly ask for:
-     1. **Phone Number** (with country code).
-     2. **Official Telegram Verification Code (OTP)** sent by Telegram Service Notifications.
-     3. (Optional) 2FA Cloud Password if the user has Two-Step Verification enabled on their Telegram account.
-
-2. **Dedicated Credentials File**:
-   - A single, dedicated configuration file: `server/config.ts` (with matching `.env.example`).
-   - The user will be given the exact instructions on how to set their `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` in this file.
-
-3. **Backend MTProto Reliability & Diagnostics**:
-   - Add `/api/telegram/status` endpoint to verify if the server is successfully connected to Telegram Data Centers (DCs).
-   - Return clean, actionable error messages for phone number formatting, rate limits (`FLOOD_WAIT`), or missing developer credentials.
+This plan resolves the two major issues reported:
+1. **Real MTProto Session Logout**: Terminating the Telegram session directly on Telegram official servers (`Api.auth.LogOut`) when logging out.
+2. **Android WebView & Dev APK Fix**: Resolving relative `/api/...` fetch calls that return `index.html` (`Unexpected token '<'`) on Android Capacitor WebView by detecting native platforms and routing requests to the live backend server.
+3. **App Name Update**: Updating the app branding and Android configuration to **TeleCall**.
 
 ---
 
-## 2. Proposed Changes & Implementation Steps
+## 1. Root Cause Analysis
 
-### A. Developer Configuration (`server/config.ts` & `.env.example`)
-- Create `server/config.ts`:
-  - Reads `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` from `process.env`.
-  - Provides a single, clear place with prominent comments where the developer can paste their credentials.
-- Create `.env.example`:
-  - `TELEGRAM_API_ID=your_api_id_here`
-  - `TELEGRAM_API_HASH=your_api_hash_here`
-  - `PORT=3000`
+### A. The "Unexpected token '<', '<html> <he'..." error in Android APK
+- In Capacitor Android APK, files are loaded from `http://localhost/` or `capacitor://localhost/`.
+- When the frontend does `fetch('/api/telegram/send-code')`, the local Android asset server catches the request and falls back to serving `index.html` (SPA fallback).
+- When `res.json()` attempts to parse the HTML page, it throws: `Unexpected token '<', "<html> <he"... is not valid JSON`.
+- **Fix**: Create a centralized `getApiBaseUrl()` utility:
+  - If running in native Capacitor (`Capacitor.isNativePlatform()` or hostname is `localhost` without port 3000), route calls to the live cloud server URL (`https://ais-dev-jerx2loq5b76kwmk4eyf3m-80533556186.asia-southeast1.run.app`).
+  - Provide a quick server URL setting in the app so the developer can also point to any custom self-hosted server if needed.
 
-### B. Clean Up Login UI (`src/components/auth/TelegramLoginModal.tsx`)
-- Completely remove the custom API ID & Hash settings drawer.
-- Present a sleek, authentic Telegram login UI:
-  - Phone number input.
-  - Telegram Service Notifications OTP input.
-  - Optional 2FA password prompt (only shown if Telegram returns `SESSION_PASSWORD_NEEDED`).
-  - Backend connection status indicator (shows "Connected to Telegram MTProto" or warns if API credentials are not yet inserted).
+### B. Telegram Session remaining active on Logout
+- Previously, `logoutTelegram()` only cleared `localStorage`.
+- Because GramJS `auth.signIn` registers a real session in Telegram DC, Telegram keeps the session active in the user's "Active Sessions" list.
+- **Fix**:
+  - Add backend endpoint `POST /api/telegram/logout` that calls `client.invoke(new Api.auth.LogOut())`.
+  - When the user taps "Log out" in the app, it calls this endpoint, immediately terminating the Singapore session on Telegram's official servers.
 
-### C. Backend Engine (`server/telegramService.ts` & `server.ts`)
-- Use `server/config.ts` to initialize GramJS `TelegramClient`.
-- Implement `/api/telegram/status` endpoint:
-  - Checks if developer credentials are configured.
-  - Reports current connection status to Telegram DC (e.g., DC 2 / DC 4).
-- Detailed error handling for `auth.sendCode`:
-  - Handle `PHONE_NUMBER_INVALID`.
-  - Handle `API_ID_INVALID` / `API_ID_PUBLISHED_FLOOD`.
-  - Handle `FLOOD_WAIT_X` with friendly countdown.
+### C. Developer Warning Banner Fix
+- The banner `"Developer Setup Required..."` showed because `/api/telegram/status` was failing inside the APK with the HTML parsing error.
+- Once the API URL is routed to the live server, `/api/telegram/status` correctly returns `{ isConfigured: true }`, automatically hiding the banner.
 
-### D. Client Auth Service (`src/services/telegramAuth.ts`)
-- Remove client-side API ID/Hash requirements.
-- Send simple `{ phoneNumber }` to `/api/telegram/send-code`.
-- Send `{ phoneNumber, phoneCode, phoneCodeHash, password? }` to `/api/telegram/sign-in`.
+---
+
+## 2. Proposed Changes
+
+### A. Backend MTProto Logout Endpoint (`server/telegramService.ts` & `server.ts`)
+- Implement `logoutTelegramUser(sessionString)`:
+  - Connects client with session string.
+  - Calls `await client.invoke(new Api.auth.LogOut())`.
+  - Removes from active clients map.
+- Mount `POST /api/telegram/logout` in `server.ts`.
+
+### B. Centralized API Base URL Resolver (`src/services/apiConfig.ts`)
+- Detects whether the app is running in browser preview or Android Capacitor WebView.
+- In Capacitor APK, routes all `/api/...` calls to the live server domain (`https://ais-dev-jerx2loq5b76kwmk4eyf3m-80533556186.asia-southeast1.run.app`).
+- Allows local override if the user is running `server.ts` on their own local IP / port.
+
+### C. Frontend Auth & Logout Integration (`src/services/telegramAuth.ts`)
+- Update all `fetch()` calls to use `getApiUrl(path)`.
+- Update `logoutTelegram()` to asynchronously call `/api/telegram/logout` before clearing `localStorage`.
+
+### D. TeleCall Branding & Android Configuration
+- Update Header, Sidebar, Login Modal, and Page Title to **TeleCall**.
+- Update `android/app/src/main/res/values/strings.xml` to `app_name = "TeleCall"`.
+- Re-sync Capacitor and package updated `telenotes-source-code.zip`.
 
 ---
 
 ## 3. Verification & Testing Plan
-1. **Credentials Check**: Verify `server/config.ts` reads environment variables and defaults gracefully with actionable error messages.
-2. **Status Route Check**: Call `GET /api/telegram/status` to confirm MTProto DC readiness.
-3. **Login Flow Verification**:
-   - Test Phone input and OTP prompt in the UI.
-   - Verify that no developer credentials ever appear in frontend forms.
-4. **Build & Lint Verification**: Run `lint_applet` and `compile_applet` to confirm 0 errors.
+1. **API URL Resolution**: Confirm `getApiUrl('/api/telegram/status')` returns full URL when running in Android WebView.
+2. **Logout Endpoint Test**: Test `POST /api/telegram/logout` with valid session string and verify session termination.
+3. **TypeScript & Build**: Run `lint_applet` and `compile_applet`.
+4. **Android Sync**: Run `npx cap sync android` and generate fresh clean APK project zip.
