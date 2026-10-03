@@ -10,8 +10,8 @@ dotenv.config();
  * 
  * Options:
  * 1. .env file me add karein:
- *    TELEGRAM_API_ID=12345678
- *    TELEGRAM_API_HASH=0123456789abcdef0123456789abcdef
+ *    TELEGRAM_API_ID=30428833
+ *    TELEGRAM_API_HASH=41c474aebd7507799bd322e7517286c2
  * 
  * 2. Ya fir direct neeche DEFAULT_TELEGRAM_API_ID aur DEFAULT_TELEGRAM_API_HASH me paste karein:
  */
