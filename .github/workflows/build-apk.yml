@@ -46,7 +46,7 @@ jobs:
       - name: Install Project Dependencies
         run: |
           npm install --legacy-peer-deps --no-audit --no-fund
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest --legacy-peer-deps --no-audit --no-fund
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor/status-bar@latest @capacitor/keyboard@latest --legacy-peer-deps --no-audit --no-fund
 
       - name: Build Web Application (Bundled Offline Assets)
         run: |
@@ -60,8 +60,6 @@ jobs:
           
           echo "Branch detection: ref_name=$REF_NAME, ref=$REF"
 
-          # If the branch is specifically main or master, it is Production.
-          # Otherwise (dev, feature branch, workflow_dispatch on dev), it is DEV!
           if [ "$REF_NAME" = "main" ] || [ "$REF_NAME" = "master" ]; then
             IS_DEV=false
           else
@@ -96,10 +94,23 @@ jobs:
               "captureInput": true,
               "webContentsDebuggingEnabled": true,
               "backgroundColor": "#020617"
+            },
+            "plugins": {
+              "StatusBar": {
+                "overlaysWebView": true,
+                "style": "DARK",
+                "backgroundColor": "#00000000"
+              },
+              "NavigationBar": {
+                "displaysInLowProfile": false,
+                "backgroundColor": "#00000000"
+              }
             }
           }
           EOF
-            sed -i 's/applicationId "com.telenotes.app"/applicationId "com.telenotes.dev"/g' android/app/build.gradle
+            if [ -f "android/app/build.gradle" ]; then
+              sed -i 's/applicationId "com.telenotes.app"/applicationId "com.telenotes.dev"/g' android/app/build.gradle
+            fi
             echo "ARTIFACT_NAME=telenotes-dev-apk" >> $GITHUB_ENV
             echo "APK_PREFIX=telenotes-dev" >> $GITHUB_ENV
           else
@@ -115,23 +126,59 @@ jobs:
             "android": {
               "allowMixedContent": true,
               "backgroundColor": "#020617"
+            },
+            "plugins": {
+              "StatusBar": {
+                "overlaysWebView": true,
+                "style": "DARK",
+                "backgroundColor": "#00000000"
+              },
+              "NavigationBar": {
+                "displaysInLowProfile": false,
+                "backgroundColor": "#00000000"
+              }
             }
           }
           EOF
-            sed -i 's/applicationId "com.telenotes.dev"/applicationId "com.telenotes.app"/g' android/app/build.gradle
+            if [ -f "android/app/build.gradle" ]; then
+              sed -i 's/applicationId "com.telenotes.dev"/applicationId "com.telenotes.app"/g' android/app/build.gradle
+            fi
             echo "ARTIFACT_NAME=telenotes-production-apk" >> $GITHUB_ENV
             echo "APK_PREFIX=telenotes-production" >> $GITHUB_ENV
           fi
 
-      - name: Setup Android Platform & Generate Gradle Wrapper
+      - name: Setup Android Platform & Enforce Edge-to-Edge Full Screen
         run: |
-          if [ ! -f "android/gradlew" ]; then
-            echo "Generating fresh Android native project..."
-            rm -rf android
+          if [ ! -d "android/app" ]; then
+            echo "Generating Android native project..."
             npx cap add android
           fi
           npx cap sync android
-          chmod +x android/gradlew
+
+          # Ensure Gradle wrapper exists
+          if [ ! -f "android/gradlew" ]; then
+            echo "Creating gradle wrapper..."
+            cd android
+            gradle wrapper --gradle-version 8.7 || gradle wrapper || true
+            cd ..
+          fi
+          chmod +x android/gradlew || true
+
+          # Inject and enforce Edge-to-Edge full screen in MainActivity.java
+          MAIN_ACTIVITY="android/app/src/main/java/com/telenotes/app/MainActivity.java"
+          if [ -f "$MAIN_ACTIVITY" ]; then
+            if ! grep -q "WindowCompat.setDecorFitsSystemWindows" "$MAIN_ACTIVITY"; then
+              echo "Injecting WindowCompat into MainActivity.java..."
+              sed -i '/super.onCreate(savedInstanceState);/a \        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), false);' "$MAIN_ACTIVITY"
+            fi
+          fi
+
+          # Enforce transparent status bar in styles.xml
+          STYLES_XML="android/app/src/main/res/values/styles.xml"
+          if [ -f "$STYLES_XML" ]; then
+            sed -i 's/<item name="android:statusBarColor">.*<\/item>/<item name="android:statusBarColor">@android:color\/transparent<\/item>/g' "$STYLES_XML"
+            sed -i 's/<item name="android:navigationBarColor">.*<\/item>/<item name="android:navigationBarColor">@android:color\/transparent<\/item>/g' "$STYLES_XML"
+          fi
 
       - name: Build Android Debug APK
         if: "${{ github.event.inputs.build_type != 'release' }}"

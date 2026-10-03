@@ -88,7 +88,7 @@ export const TelegramFeed: React.FC<TelegramFeedProps> = ({
         backgroundColor: 'var(--theme-bg)',
         color: 'var(--theme-text)',
       }}
-      className="flex flex-col h-full select-none overflow-hidden relative"
+      className="flex flex-col h-full overflow-hidden relative"
     >
       {/* Top Header Bar (Requirement #3) */}
       <div
@@ -186,14 +186,21 @@ export const TelegramFeed: React.FC<TelegramFeedProps> = ({
       <div className="fixed bottom-6 inset-x-0 flex justify-center z-30 pointer-events-none">
         <button
           onClick={onCreateNewEntry}
-          className="pointer-events-auto px-6 py-3.5 rounded-full font-bold text-sm text-white shadow-2xl flex items-center gap-2 transition-all active:scale-95 group hover:opacity-95"
+          className="pointer-events-auto px-6 py-3.5 rounded-full font-bold text-sm shadow-2xl flex items-center gap-2 transition-all active:scale-95 group hover:opacity-95"
           style={{
             backgroundColor: 'var(--theme-accent)',
+            color: 'var(--theme-accent-contrast)',
             boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
           }}
           title="Create New Diary"
         >
-          <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center"
+            style={{
+              backgroundColor: 'rgba(0,0,0,0.15)',
+              color: 'var(--theme-accent-contrast)',
+            }}
+          >
             <Plus size={18} className="group-hover:rotate-90 transition-transform duration-200" />
           </div>
           <span>Write New Diary</span>

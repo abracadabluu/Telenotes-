@@ -1,11 +1,33 @@
 {
-	"appId": "com.telenotes.app",
-	"appName": "Telenotes",
+	"appId": "com.telenotes.dev",
+	"appName": "Telenotes Dev",
 	"webDir": "dist",
 	"server": {
-		"androidScheme": "https"
+		"errorPath": "index.html",
+		"androidScheme": "https",
+		"cleartext": true,
+		"allowNavigation": [
+			"https://*.github.io",
+			"https://*.run.app",
+			"http://localhost:*",
+			"*"
+		]
 	},
 	"android": {
-		"allowMixedContent": true
+		"allowMixedContent": true,
+		"captureInput": true,
+		"webContentsDebuggingEnabled": true,
+		"backgroundColor": "#020617"
+	},
+	"plugins": {
+		"StatusBar": {
+			"overlaysWebView": true,
+			"style": "DARK",
+			"backgroundColor": "#00000000"
+		},
+		"NavigationBar": {
+			"displaysInLowProfile": false,
+			"backgroundColor": "#00000000"
+		}
 	}
 }

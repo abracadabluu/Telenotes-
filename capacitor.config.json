@@ -27,11 +27,11 @@
     "StatusBar": {
       "overlaysWebView": true,
       "style": "DARK",
-      "backgroundColor": "#020617"
+      "backgroundColor": "#00000000"
     },
     "NavigationBar": {
       "displaysInLowProfile": false,
-      "backgroundColor": "#020617"
+      "backgroundColor": "#00000000"
     }
   }
 }

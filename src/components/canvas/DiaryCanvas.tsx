@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ArrowLeft,
   Save,
@@ -22,7 +22,6 @@ import {
   List,
   ListOrdered,
   Quote,
-  Sparkles,
   X,
   Plus,
   Check,
@@ -37,8 +36,16 @@ import {
   Crop,
   SlidersHorizontal,
   Maximize2,
-  Film,
   Music,
+  CheckSquare,
+  ListTree,
+  FileText,
+  Heading,
+  Sparkles,
+  Layers,
+  Copy,
+  Scissors,
+  CheckCircle,
 } from 'lucide-react';
 import {
   DiaryEntry,
@@ -69,9 +76,9 @@ const HINDI_FONTS = [
   { id: 'Poppins', name: 'Poppins (Clean)' },
   { id: 'Rozha One', name: 'Rozha One (Bold Headline)' },
   { id: 'Noto Sans Devanagari', name: 'Noto Sans (Standard)' },
-  { id: 'Tiro Devanagari Hindi', name: 'Tiro Devanagari (Book Serif)' },
+  { id: 'Tiro Devanagari Hindi', name: 'Tiro Devanagari (Serif)' },
   { id: 'Kalam', name: 'Kalam (Handwritten)' },
-  { id: 'Yatra One', name: 'Yatra One (Vintage Wooden)' },
+  { id: 'Yatra One', name: 'Yatra One (Vintage)' },
 ];
 
 const ENGLISH_FONTS = [
@@ -81,7 +88,7 @@ const ENGLISH_FONTS = [
   { id: 'JetBrains Mono', name: 'JetBrains Mono' },
 ];
 
-// 20+ Image Filters with CSS strings (Requirement #6-a)
+// 20+ Image Filters (Requirement #6-a)
 const IMAGE_FILTERS = [
   { id: 'none', name: 'Normal', css: 'none' },
   { id: 'grayscale', name: 'Grayscale', css: 'grayscale(100%)' },
@@ -106,6 +113,12 @@ const IMAGE_FILTERS = [
   { id: 'watercolor', name: 'Watercolor', css: 'saturate(180%) contrast(90%) brightness(115%)' },
   { id: 'halftone', name: 'Halftone Pop', css: 'contrast(200%) grayscale(50%)' },
   { id: 'glitch', name: 'Digital Glitch', css: 'hue-rotate(120deg) invert(15%) contrast(150%)' },
+];
+
+const SWATCH_COLORS = [
+  '#000000', '#ffffff', '#ef4444', '#f97316', '#eab308',
+  '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899',
+  '#64748b', '#78350f', '#064e3b', '#0c4a6e', '#4c1d95',
 ];
 
 export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
@@ -135,24 +148,27 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
   const [fontFamily, setFontFamily] = useState(
     entry?.fontFamily || settings.activeFontFamily || 'Plus Jakarta Sans'
   );
-  const [fontSize, setFontSize] = useState(entry?.fontSize || 16);
 
-  // Active footer tool tabs
-  const [activeTab, setActiveTab] = useState<'char' | 'canvas' | 'media' | 'fonts' | null>(null);
+  // Canvas wide typography states
+  const [lineHeight, setLineHeight] = useState('1.6');
+  const [letterSpacing, setLetterSpacing] = useState('normal');
+  const [wordSpacing, setWordSpacing] = useState('normal');
+  const [textDirection, setTextDirection] = useState<'ltr' | 'rtl'>('ltr');
 
-  // Selection Floating Toolbar state
-  const [floatingPos, setFloatingPos] = useState<{ top: number; left: number } | null>(null);
+  // Canva-style Docked Tool category:
+  // 'styles' | 'headings' | 'paragraph' | 'spacing' | 'colors' | 'media' | 'audio' | 'fonts'
+  const [canvaCategory, setCanvaCategory] = useState<
+    'styles' | 'headings' | 'paragraph' | 'spacing' | 'colors' | 'media' | 'audio' | 'fonts' | null
+  >(null);
 
-  // Modals & Drawers
+  // Modals
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [showAudioRecorder, setShowAudioRecorder] = useState(false);
   const [editingMediaItem, setEditingMediaItem] = useState<CanvasMediaItem | null>(null);
-
-  // Active selected media item on canvas for dragging / resizing
   const [activeMediaId, setActiveMediaId] = useState<string | null>(null);
 
-  // Reminder date input state
+  // Reminder inputs
   const [reminderTime, setReminderTime] = useState(
     entry?.reminder
       ? new Date(entry.reminder.dueTimestamp).toISOString().slice(0, 16)
@@ -160,7 +176,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
   );
   const [reminderNote, setReminderNote] = useState(entry?.reminder?.title || '');
 
-  // Canvas Background Opacity state
+  // Background Opacity
   const [bgOpacity, setBgOpacity] = useState(entry?.canvasBackground?.opacity ?? 0.25);
   const [bgUrl, setBgUrl] = useState(entry?.canvasBackground?.url || '');
 
@@ -178,6 +194,8 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
 
   const editorRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const savedRangeRef = useRef<Range | null>(null);
+
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement | null>(null);
   const bgImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -194,44 +212,94 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     }
   }, []);
 
-  // Format doc execCommand wrapper
-  const formatDoc = (cmd: string, val: string | undefined = undefined) => {
-    document.execCommand(cmd, false, val);
+  // SELECTION PRESERVATION ENGINE (Crucial for Canva-Style Tools)
+  const saveSelection = useCallback(() => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current) {
+      const range = sel.getRangeAt(0);
+      if (editorRef.current.contains(range.commonAncestorContainer)) {
+        savedRangeRef.current = range.cloneRange();
+      }
+    }
+  }, []);
+
+  const restoreSelection = useCallback(() => {
+    if (savedRangeRef.current) {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(savedRangeRef.current);
+      }
+    }
+  }, []);
+
+  // Listen to selection changes
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      saveSelection();
+    };
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, [saveSelection]);
+
+  // Execute command while preserving selection
+  const executeFormat = (command: string, value: string | undefined = undefined) => {
+    restoreSelection();
+    if (editorRef.current) {
+      editorRef.current.focus();
+    }
+    document.execCommand(command, false, value);
+    saveSelection();
     handleEditorInput();
   };
 
-  // Text selection detector for floating toolbar
-  const handleSelectionCheck = () => {
+  // Custom Tag Wrapping for specialized typography: Strong, Emphasis, Del, Mark, Overline, Code, Small
+  const wrapSelectedText = (tag: string, inlineStyle?: string) => {
+    restoreSelection();
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !editorRef.current) {
-      setFloatingPos(null);
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      executeFormat('formatBlock', tag);
       return;
     }
 
-    if (editorRef.current.contains(sel.anchorNode)) {
-      const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      const containerRect = containerRef.current?.getBoundingClientRect();
+    const range = sel.getRangeAt(0);
+    const selectedContent = range.extractContents();
+    const element = document.createElement(tag);
+    if (inlineStyle) {
+      element.setAttribute('style', inlineStyle);
+    }
+    element.appendChild(selectedContent);
+    range.insertNode(element);
+    sel.removeAllRanges();
+    const newRange = document.createRange();
+    newRange.selectNodeContents(element);
+    sel.addRange(newRange);
+    savedRangeRef.current = newRange.cloneRange();
+    handleEditorInput();
+  };
 
-      if (rect && containerRect) {
-        setFloatingPos({
-          top: Math.max(10, rect.top - containerRect.top - 48),
-          left: Math.max(
-            10,
-            Math.min(containerRect.width - 290, rect.left - containerRect.left + rect.width / 2 - 145)
-          ),
-        });
-      }
+  // Section Heading Formatter (H1 to H20)
+  const applyHeadingLevel = (level: number) => {
+    restoreSelection();
+    if (level <= 6) {
+      executeFormat('formatBlock', `h${level}`);
     } else {
-      setFloatingPos(null);
+      // H7 to H20 styled heading paragraphs
+      const fontSizeRem = Math.max(0.85, 2.2 - (level - 1) * 0.08);
+      wrapSelectedText(
+        'p',
+        `font-size: ${fontSizeRem}rem; font-weight: 700; line-height: 1.3; margin-top: 1rem; margin-bottom: 0.5rem;`
+      );
     }
   };
 
-  // Continuous Auto-Save Engine (Requirement #6)
+  // Continuous Auto-Save Engine
   const triggerAutoSave = (currentTitle: string, currentHtml: string) => {
     const plainText = editorRef.current?.innerText || '';
     if (!currentTitle.trim() && !plainText.trim() && mediaItems.length === 0 && audioRecordings.length === 0) {
-      return; // Do not auto-save empty entries
+      return;
     }
 
     const updatedEntry: DiaryEntry = {
@@ -250,7 +318,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
       reminder,
       tags: entry?.tags || [],
       fontFamily,
-      fontSize,
     };
     onSave(updatedEntry);
   };
@@ -263,7 +330,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     }
   };
 
-  // Explicit Save Button
   const handleExplicitSave = () => {
     const plainText = editorRef.current?.innerText || '';
     if (!title.trim() && !plainText.trim() && mediaItems.length === 0 && audioRecordings.length === 0) {
@@ -287,21 +353,22 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
       reminder,
       tags: entry?.tags || [],
       fontFamily,
-      fontSize,
     };
     onSave(updatedEntry);
     onBack();
   };
 
-  // KEYBOARD-LEVEL GBOARD GIF & IMAGE PASTE INTERCEPTION (User requirement #1 & latest revision)
+  // CLIPBOARD & GBOARD GIF INTERCEPTION (Guarantees normal text paste works!)
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
+    let foundImage = false;
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.type.indexOf('image') !== -1) {
-        e.preventDefault();
+        foundImage = true;
+        e.preventDefault(); // ONLY prevent default if it's an image or GIF!
         const file = item.getAsFile();
         if (!file) continue;
 
@@ -325,9 +392,10 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
           setActiveMediaId(newMedia.id);
         };
         reader.readAsDataURL(file);
-        return;
+        break;
       }
     }
+    // If it's normal text or HTML, do NOT prevent default! Native clipboard paste executes normally!
   };
 
   // Add Vector Sticker
@@ -346,10 +414,10 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     };
     setMediaItems((prev) => [...prev, newMedia]);
     setActiveMediaId(newMedia.id);
-    setActiveTab(null);
+    setCanvaCategory(null);
   };
 
-  // Custom Image / GIF Upload
+  // Custom Image Upload
   const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -371,12 +439,12 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
       };
       setMediaItems((prev) => [...prev, newMedia]);
       setActiveMediaId(newMedia.id);
-      setActiveTab(null);
+      setCanvaCategory(null);
     };
     reader.readAsDataURL(file);
   };
 
-  // External Audio File Upload (Requirement #6-a)
+  // Audio Upload
   const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -388,15 +456,15 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         url,
         duration: 0,
         date: Date.now(),
-        title: file.name || 'Audio Memo',
+        title: file.name || 'Audio File',
       };
       setAudioRecordings((prev) => [...prev, newRec]);
-      setActiveTab(null);
+      setCanvaCategory(null);
     };
     reader.readAsDataURL(file);
   };
 
-  // Custom Font File (.ttf/.woff/.otf) Upload (Requirement #6-a)
+  // Custom Font Upload
   const handleFontUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -405,7 +473,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
       const dataUrl = event.target?.result as string;
       const fontName = file.name.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-      // Create font-face dynamic style
       const styleEl = document.createElement('style');
       styleEl.innerHTML = `@font-face { font-family: '${fontName}'; src: url('${dataUrl}'); }`;
       document.head.appendChild(styleEl);
@@ -426,12 +493,12 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         });
       }
       setFontFamily(fontName);
-      setActiveTab(null);
+      setCanvaCategory(null);
     };
     reader.readAsDataURL(file);
   };
 
-  // UNIFIED MEDIA DRAG & CORNER RESIZE HANDLERS (Requirement #10 & latest revision)
+  // UNIFIED MEDIA DRAG & CORNER RESIZE HANDLERS
   const handleMediaTouchStart = (e: React.TouchEvent | React.MouseEvent, item: CanvasMediaItem, isResizeHandle = false) => {
     e.stopPropagation();
     setActiveMediaId(item.id);
@@ -489,7 +556,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     } else if (isResizingMediaRef.current) {
       const dxPx = clientX - dragStartRef.current.x;
       const newWidth = Math.max(60, Math.min(320, dragStartRef.current.itemW + dxPx));
-      const newHeight = newWidth; // Keep aspect ratio proportional
+      const newHeight = newWidth;
 
       setMediaItems((prev) =>
         prev.map((m) =>
@@ -510,8 +577,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
     isResizingMediaRef.current = false;
   };
 
-  const activeMedia = mediaItems.find((m) => m.id === activeMediaId);
-
   return (
     <div
       ref={containerRef}
@@ -520,7 +585,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
       onMouseUp={handleContainerEnd}
       onTouchEnd={handleContainerEnd}
       onClick={() => {
-        handleSelectionCheck();
+        saveSelection();
         setActiveMediaId(null);
       }}
       style={{
@@ -528,9 +593,9 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         color: 'var(--theme-text)',
         fontFamily,
       }}
-      className="flex flex-col h-full select-none overflow-hidden relative"
+      className="flex flex-col h-full overflow-hidden relative"
     >
-      {/* Custom Background Wallpaper with Opacity (Requirement #6-a & #13) */}
+      {/* Custom Background Wallpaper */}
       {bgUrl && (
         <div
           className="absolute inset-0 pointer-events-none z-0 transition-opacity duration-300"
@@ -543,7 +608,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         />
       )}
 
-      {/* Top Header Bar (Requirement #6) */}
+      {/* Top Header Bar */}
       <div
         className="px-4 py-3 border-b border-[var(--theme-border)] backdrop-blur-md z-30 shrink-0 flex items-center justify-between"
         style={{ backgroundColor: 'var(--theme-surface)' }}
@@ -557,7 +622,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
             <ArrowLeft size={20} />
           </button>
 
-          {/* Profile Pic Button: Emoji with bg color, custom image, or GIF */}
+          {/* Profile Pic Button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -565,7 +630,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
             }}
             className="w-9 h-9 rounded-full flex items-center justify-center text-lg border border-[var(--theme-border)] overflow-hidden shrink-0 shadow-sm active:scale-95 transition-transform"
             style={{ backgroundColor: avatar.bgColor || 'var(--theme-accent)' }}
-            title="Change Avatar / Icon"
+            title="Change Avatar"
           >
             {avatar.type === 'emoji' ? (
               <span>{avatar.value}</span>
@@ -574,7 +639,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
             )}
           </button>
 
-          {/* Diary Heading / Title input right beside profile pic */}
+          {/* Title Heading */}
           <input
             type="text"
             placeholder="Diary Title / Heading..."
@@ -587,9 +652,8 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
           />
         </div>
 
-        {/* Right Corner: Reminder Button + Save Button */}
+        {/* Right Corner: Reminder + Save */}
         <div className="flex items-center gap-1.5 shrink-0 ml-2">
-          {/* Scheduled Reminder Button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -605,10 +669,13 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
             <Bell size={18} />
           </button>
 
-          {/* Save Button */}
           <button
             onClick={handleExplicitSave}
-            className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 bg-[var(--theme-accent)] text-white hover:opacity-90"
+            className="px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition-all active:scale-95 hover:opacity-90"
+            style={{
+              backgroundColor: 'var(--theme-accent)',
+              color: 'var(--theme-accent-contrast)',
+            }}
           >
             <Save size={15} />
             <span>Save</span>
@@ -637,7 +704,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
           </div>
         )}
 
-        {/* Pure Natural Text Editing Area (Requirement #1 & latest revision) */}
+        {/* PURE NATURAL TEXT EDITING AREA (Normal Keyboard & Clipboard!) */}
         <div
           ref={editorRef}
           contentEditable={true}
@@ -648,14 +715,20 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
           onInput={handleEditorInput}
           onBlur={handleEditorInput}
           onPaste={handlePaste}
-          onMouseUp={handleSelectionCheck}
-          onTouchEnd={handleSelectionCheck}
-          data-placeholder="Write your personal diary entry here... Tap keyboard GIF button to paste GIFs directly!"
-          className="flex-1 min-h-[350px] focus:outline-none leading-relaxed text-base sm:text-lg empty:before:content-[attr(data-placeholder)] empty:before:text-slate-500 empty:before:pointer-events-none"
-          style={{ fontSize: `${fontSize}px` }}
+          onKeyUp={saveSelection}
+          onMouseUp={saveSelection}
+          onTouchEnd={saveSelection}
+          dir={textDirection}
+          data-placeholder="Write your personal reflections... Tap keyboard GIF button or Canva tools below!"
+          className="flex-1 min-h-[350px] focus:outline-none leading-relaxed text-base sm:text-lg select-text empty:before:content-[attr(data-placeholder)] empty:before:text-slate-500 empty:before:pointer-events-none"
+          style={{
+            lineHeight,
+            letterSpacing,
+            wordSpacing,
+          }}
         />
 
-        {/* UNIFIED DRAGGABLE & RESIZABLE MEDIA LAYER (Images, GIFs, Stickers) */}
+        {/* UNIFIED DRAGGABLE & RESIZABLE MEDIA LAYER */}
         {mediaItems.map((item) => {
           const isSelected = activeMediaId === item.id;
           return (
@@ -674,7 +747,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                 height: `${item.height}px`,
                 transform: `rotate(${item.rotation || 0}deg)`,
               }}
-              className={`absolute cursor-move select-none z-20 transition-shadow ${
+              className={`absolute cursor-move z-20 transition-shadow ${
                 isSelected ? 'ring-2 ring-[var(--theme-accent)] rounded-2xl shadow-2xl p-1' : ''
               }`}
             >
@@ -685,14 +758,18 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                 style={{ filter: item.filter || 'none' }}
               />
 
-              {/* Corner Resize Drag Handle (Requirement #10 & latest revision) */}
+              {/* Corner Resize Drag Handle */}
               {isSelected && (
                 <>
                   <div
                     onTouchStart={(e) => handleMediaTouchStart(e, item, true)}
                     onMouseDown={(e) => handleMediaTouchStart(e, item, true)}
-                    className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-[var(--theme-accent)] text-white flex items-center justify-center shadow-lg cursor-nwse-resize active:scale-125"
-                    title="Drag to resize"
+                    className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center shadow-lg cursor-nwse-resize active:scale-125"
+                    style={{
+                      backgroundColor: 'var(--theme-accent)',
+                      color: 'var(--theme-accent-contrast)',
+                    }}
+                    title="Drag corner to resize"
                   >
                     <Maximize2 size={13} />
                   </div>
@@ -728,187 +805,277 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         })}
       </div>
 
-      {/* FLOATING TEXT SELECTION TOOLBAR (Requirement #6-a) */}
-      {floatingPos && (
+      {/* CANVA-STYLE DOCKED FORMATTING POPOVER DRAWER */}
+      {canvaCategory && (
         <div
-          style={{ top: `${floatingPos.top}px`, left: `${floatingPos.left}px` }}
-          className="absolute z-40 bg-[var(--theme-surface)] border border-[var(--theme-border)] shadow-2xl rounded-2xl p-1.5 flex items-center gap-1 text-[var(--theme-text)] backdrop-blur-md animate-scaleUp"
+          style={{
+            backgroundColor: 'var(--theme-surface)',
+            borderColor: 'var(--theme-border)',
+          }}
+          className="border-t p-3 z-40 shadow-2xl text-xs max-h-64 overflow-y-auto animate-slideDown"
         >
-          <button
-            onClick={() => formatDoc('bold')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg"
-            title="Bold"
-          >
-            <Bold size={15} />
-          </button>
-          <button
-            onClick={() => formatDoc('italic')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg"
-            title="Italic"
-          >
-            <Italic size={15} />
-          </button>
-          <button
-            onClick={() => formatDoc('underline')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg"
-            title="Underline"
-          >
-            <Underline size={15} />
-          </button>
-          <button
-            onClick={() => formatDoc('strikeThrough')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg"
-            title="Strikethrough"
-          >
-            <Strikethrough size={15} />
-          </button>
-          <button
-            onClick={() => formatDoc('hiliteColor', '#fef08a')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg text-amber-300"
-            title="Highlight / Mark"
-          >
-            <Highlighter size={15} />
-          </button>
-          <button
-            onClick={() => formatDoc('subscript')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg"
-            title="Subscript"
-          >
-            <Subscript size={15} />
-          </button>
-          <button
-            onClick={() => formatDoc('superscript')}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg"
-            title="Superscript"
-          >
-            <Superscript size={15} />
-          </button>
-          <button
-            onClick={() => {
-              const url = prompt('Enter Web Link URL:');
-              if (url) formatDoc('createLink', url);
-            }}
-            className="p-1.5 hover:bg-[var(--theme-surface-hover)] rounded-lg text-[var(--theme-accent)]"
-            title="Create WebLink"
-          >
-            <LinkIcon size={15} />
-          </button>
-        </div>
-      )}
-
-      {/* FOOTER EXPANDED TOOLBAR PALETTE */}
-      {activeTab && (
-        <div
-          style={{ backgroundColor: 'var(--theme-surface)', borderColor: 'var(--theme-border)' }}
-          className="border-t p-3 z-30 animate-slideDown shadow-2xl text-xs max-h-56 overflow-y-auto"
-        >
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-[var(--theme-border)]">
-            <span className="font-bold capitalize">{activeTab} Formatting Suite</span>
-            <button onClick={() => setActiveTab(null)} className="p-1 opacity-60 hover:opacity-100">
+          <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-[var(--theme-border)]">
+            <span className="font-bold capitalize flex items-center gap-1.5 text-[var(--theme-accent)]">
+              <Sparkles size={14} />
+              <span>Canva {canvaCategory} Suite</span>
+            </span>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setCanvaCategory(null)}
+              className="p-1 opacity-60 hover:opacity-100"
+            >
               <X size={16} />
             </button>
           </div>
 
-          {/* 1. Character & Typography Suite (Requirement #6-a) */}
-          {activeTab === 'char' && (
+          {/* 1. CHARACTER STYLES POPOVER */}
+          {canvaCategory === 'styles' && (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-1.5">
                 <button
-                  onClick={() => formatDoc('selectAll')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('selectAll')}
+                  className="px-2.5 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold"
                 >
                   Select All
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'h1')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('cut')}
+                  className="px-2.5 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1"
                 >
-                  H1
+                  <Scissors size={13} />
+                  <span>Cut</span>
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'h2')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('copy')}
+                  className="px-2.5 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1"
                 >
-                  H2
+                  <Copy size={13} />
+                  <span>Copy</span>
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'h3')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('bold')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex items-center gap-1"
                 >
-                  H3
+                  <Bold size={13} />
+                  <span>Bold</span>
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'h4')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('strong')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-extrabold"
                 >
-                  H4
+                  Strong
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'p')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)]"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('italic')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] italic flex items-center gap-1"
                 >
-                  Paragraph
+                  <Italic size={13} />
+                  <span>Italic</span>
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'pre')}
-                  className="px-2.5 py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-mono"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('em')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] italic"
                 >
-                  Code Block
+                  Emphasis
                 </button>
-              </div>
-
-              {/* Headings H1 to H20 slider/selector */}
-              <div className="flex items-center gap-2 pt-1 border-t border-[var(--theme-border)]">
-                <span className="opacity-75">Section Heading Level:</span>
-                <select
-                  onChange={(e) => formatDoc('formatBlock', e.target.value)}
-                  className="bg-[var(--theme-bg)] border border-[var(--theme-border)] rounded-lg px-2 py-1 text-xs"
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('underline')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] underline flex items-center gap-1"
                 >
-                  {[1, 2, 3, 4, 5, 6].map((lvl) => (
-                    <option key={lvl} value={`h${lvl}`}>
-                      Heading {lvl} (H{lvl})
-                    </option>
-                  ))}
-                </select>
+                  <Underline size={13} />
+                  <span>Underline</span>
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('strikeThrough')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] line-through flex items-center gap-1"
+                >
+                  <Strikethrough size={13} />
+                  <span>Strikethrough</span>
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('del')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] line-through opacity-75"
+                >
+                  Delete
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('span', 'text-decoration: overline;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] overline"
+                >
+                  Overline
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('mark', 'background-color: #fef08a; color: #1e293b; padding: 2px 4px; border-radius: 4px;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold text-amber-300"
+                >
+                  Mark / Highlight
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('subscript')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center gap-1"
+                >
+                  <Subscript size={13} />
+                  <span>Subscript</span>
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('superscript')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center gap-1"
+                >
+                  <Superscript size={13} />
+                  <span>Superscript</span>
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('code', 'font-family: monospace; background: rgba(120,120,120,0.2); padding: 2px 5px; border-radius: 4px;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-mono"
+                >
+                  Monospace / Inline Code
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('small')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] text-[10px]"
+                >
+                  Small Text
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    const url = prompt('Enter Web Link URL:');
+                    if (url) executeFormat('createLink', url);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] text-sky-400 flex items-center gap-1 font-semibold"
+                >
+                  <LinkIcon size={13} />
+                  <span>WebLink</span>
+                </button>
               </div>
             </div>
           )}
 
-          {/* 2. Canvas-Wide Formatting Suite (Requirement #6-a) */}
-          {activeTab === 'canvas' && (
+          {/* 2. SECTION HEADINGS (H1 to H20, Title, Subtitle, Display, Hero, Caption, Label) */}
+          {canvaCategory === 'headings' && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('h1', 'font-size: 2.25rem; font-weight: 800; line-height: 1.2;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-black text-sm"
+                >
+                  Document Title
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('p', 'font-size: 1.25rem; font-weight: 500; opacity: 0.8;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-medium text-xs opacity-80"
+                >
+                  Subtitle
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('div', 'font-size: 2.75rem; font-weight: 900; letter-spacing: -0.04em;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-black text-xs text-amber-400"
+                >
+                  Display Text
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('div', 'font-size: 3.25rem; font-weight: 900; line-height: 1.1;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-black text-xs text-rose-400"
+                >
+                  Hero Text
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('p', 'font-size: 0.75rem; opacity: 0.65; font-style: italic;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] text-[11px] italic opacity-60"
+                >
+                  Caption
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => wrapSelectedText('span', 'font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; background: rgba(56,189,248,0.2); color: #38bdf8; padding: 2px 6px; border-radius: 4px;')}
+                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] text-[10px] font-bold uppercase tracking-wider text-sky-400"
+                >
+                  Label
+                </button>
+              </div>
+
+              {/* Headings H1 to H20 Grid */}
+              <div className="pt-2 border-t border-[var(--theme-border)] space-y-1.5">
+                <span className="font-bold opacity-75 block text-[11px]">
+                  Section Headings (H1 to H20):
+                </span>
+                <div className="grid grid-cols-5 sm:grid-cols-10 gap-1">
+                  {Array.from({ length: 20 }, (_, i) => i + 1).map((lvl) => (
+                    <button
+                      key={lvl}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyHeadingLevel(lvl)}
+                      className="py-1.5 rounded-lg bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold text-center hover:border-[var(--theme-accent)] transition-colors"
+                    >
+                      H{lvl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. PARAGRAPH, LISTS & ALIGNMENT POPOVER */}
+          {canvaCategory === 'paragraph' && (
             <div className="space-y-3">
               {/* Alignments */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => formatDoc('justifyLeft')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('justifyLeft')}
                   className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)]"
                   title="Left Align"
                 >
                   <AlignLeft size={16} />
                 </button>
                 <button
-                  onClick={() => formatDoc('justifyCenter')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('justifyCenter')}
                   className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)]"
                   title="Center Align"
                 >
                   <AlignCenter size={16} />
                 </button>
                 <button
-                  onClick={() => formatDoc('justifyRight')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('justifyRight')}
                   className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)]"
                   title="Right Align"
                 >
                   <AlignRight size={16} />
                 </button>
                 <button
-                  onClick={() => formatDoc('justifyFull')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('justifyFull')}
                   className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)]"
                   title="Justify"
                 >
                   <AlignJustify size={16} />
                 </button>
                 <button
-                  onClick={() => formatDoc('indent')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('indent')}
                   className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)]"
                   title="First-line Indent"
                 >
@@ -916,42 +1083,217 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                 </button>
               </div>
 
-              {/* Lists */}
-              <div className="flex gap-2 pt-2 border-t border-[var(--theme-border)]">
+              {/* Lists Suite */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[var(--theme-border)]">
                 <button
-                  onClick={() => formatDoc('insertUnorderedList')}
-                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center gap-1.5 font-semibold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('insertUnorderedList')}
+                  className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1.5"
                 >
                   <List size={15} />
-                  <span>Bulleted List</span>
+                  <span>Bulleted / Unordered List</span>
                 </button>
                 <button
-                  onClick={() => formatDoc('insertOrderedList')}
-                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center gap-1.5 font-semibold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => executeFormat('insertOrderedList')}
+                  className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1.5"
                 >
                   <ListOrdered size={15} />
-                  <span>Numbered List</span>
+                  <span>Numbered / Ordered List</span>
                 </button>
                 <button
-                  onClick={() => formatDoc('formatBlock', 'blockquote')}
-                  className="px-3 py-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center gap-1.5 font-semibold"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    executeFormat('insertHTML', '<p>☑ <span style="text-decoration: none;">Task item</span></p>');
+                  }}
+                  className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1.5 text-emerald-400"
                 >
-                  <Quote size={15} />
-                  <span>Quote Block</span>
+                  <CheckSquare size={15} />
+                  <span>Task List / Checklist</span>
                 </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    executeFormat('insertHTML', '<dl><dt><strong>Term</strong></dt><dd>Definition description</dd></dl>');
+                  }}
+                  className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1.5 text-sky-400"
+                >
+                  <FileText size={15} />
+                  <span>Definition / Description</span>
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    executeFormat('insertHTML', '<ul><li>Main item<ul><li>Nested sub-item</li></ul></li></ul>');
+                  }}
+                  className="p-2 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-semibold flex items-center gap-1.5 text-purple-400 col-span-2"
+                >
+                  <ListTree size={15} />
+                  <span>Nested Hierarchy List</span>
+                </button>
+              </div>
+
+              {/* Text Direction */}
+              <div className="pt-2 border-t border-[var(--theme-border)] flex items-center justify-between">
+                <span className="font-semibold">Text Direction:</span>
+                <div className="flex gap-2">
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setTextDirection('ltr')}
+                    className={`px-3 py-1 rounded-xl border font-bold ${
+                      textDirection === 'ltr' ? 'bg-[var(--theme-accent)] text-white' : 'opacity-60'
+                    }`}
+                  >
+                    Left-to-Right (LTR)
+                  </button>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setTextDirection('rtl')}
+                    className={`px-3 py-1 rounded-xl border font-bold ${
+                      textDirection === 'rtl' ? 'bg-[var(--theme-accent)] text-white' : 'opacity-60'
+                    }`}
+                  >
+                    Right-to-Left (RTL)
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* 3. Media, Audio & Wallpaper (Requirement #6-a) */}
-          {activeTab === 'media' && (
+          {/* 4. SPACING, LEADING & TRACKING POPOVER */}
+          {canvaCategory === 'spacing' && (
+            <div className="space-y-3">
+              {/* Line Height / Leading */}
+              <div>
+                <span className="font-bold opacity-75 block mb-1.5">
+                  Line Height / Leading ({lineHeight}):
+                </span>
+                <div className="flex gap-1.5">
+                  {['1.2', '1.4', '1.6', '1.8', '2.0', '2.4'].map((lh) => (
+                    <button
+                      key={lh}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setLineHeight(lh)}
+                      className={`flex-1 py-1.5 rounded-xl border text-center font-bold ${
+                        lineHeight === lh
+                          ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+                          : 'border-[var(--theme-border)] bg-[var(--theme-bg)]'
+                      }`}
+                    >
+                      {lh}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Letter Spacing / Tracking */}
+              <div className="pt-2 border-t border-[var(--theme-border)]">
+                <span className="font-bold opacity-75 block mb-1.5">
+                  Letter Spacing / Tracking ({letterSpacing}):
+                </span>
+                <div className="flex gap-1.5">
+                  {[
+                    { id: '-0.03em', name: 'Tight' },
+                    { id: 'normal', name: 'Normal' },
+                    { id: '0.05em', name: 'Wide' },
+                    { id: '0.12em', name: 'Very Wide' },
+                  ].map((ls) => (
+                    <button
+                      key={ls.id}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setLetterSpacing(ls.id)}
+                      className={`flex-1 py-1.5 rounded-xl border text-center font-bold ${
+                        letterSpacing === ls.id
+                          ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+                          : 'border-[var(--theme-border)] bg-[var(--theme-bg)]'
+                      }`}
+                    >
+                      {ls.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Word Spacing */}
+              <div className="pt-2 border-t border-[var(--theme-border)]">
+                <span className="font-bold opacity-75 block mb-1.5">
+                  Word Spacing ({wordSpacing}):
+                </span>
+                <div className="flex gap-1.5">
+                  {[
+                    { id: 'normal', name: 'Normal' },
+                    { id: '0.15em', name: 'Expanded' },
+                    { id: '0.3em', name: 'Wide Words' },
+                  ].map((ws) => (
+                    <button
+                      key={ws.id}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setWordSpacing(ws.id)}
+                      className={`flex-1 py-1.5 rounded-xl border text-center font-bold ${
+                        wordSpacing === ws.id
+                          ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+                          : 'border-[var(--theme-border)] bg-[var(--theme-bg)]'
+                      }`}
+                    >
+                      {ws.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 5. COLORS & HIGHLIGHT POPOVER */}
+          {canvaCategory === 'colors' && (
+            <div className="space-y-3">
+              {/* ForeColor */}
+              <div>
+                <span className="font-bold opacity-75 block mb-1.5">
+                  Text Color (ForeColor):
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {SWATCH_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => executeFormat('foreColor', c)}
+                      className="w-7 h-7 rounded-full border border-white/20 shadow-sm active:scale-110 transition-transform"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Background Highlight Fill */}
+              <div className="pt-2 border-t border-[var(--theme-border)]">
+                <span className="font-bold opacity-75 block mb-1.5">
+                  Highlight Background (Fill Color):
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {['#fef08a', '#bbf7d0', '#fed7aa', '#fecdd3', '#bae6fd', '#e9d5ff'].map((c) => (
+                    <button
+                      key={c}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => executeFormat('hiliteColor', c)}
+                      className="w-7 h-7 rounded-full border border-white/20 shadow-sm active:scale-110 transition-transform"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 6. MEDIA, FILTERS & BACKGROUND WALLPAPER POPOVER */}
+          {canvaCategory === 'media' && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <button
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => mediaFileInputRef.current?.click()}
-                  className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex items-center justify-center gap-1.5"
+                  className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex items-center justify-center gap-1.5 text-sky-400"
                 >
-                  <ImageIcon size={15} className="text-sky-400" />
+                  <ImageIcon size={15} />
                   <span>Upload Image / GIF</span>
                 </button>
                 <input
@@ -963,10 +1305,98 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                 />
 
                 <button
-                  onClick={() => audioFileInputRef.current?.click()}
-                  className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex items-center justify-center gap-1.5"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => bgImageInputRef.current?.click()}
+                  className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex items-center justify-center gap-1.5 text-amber-400"
                 >
-                  <Music size={15} className="text-emerald-400" />
+                  <Palette size={15} />
+                  <span>Wallpaper Background</span>
+                </button>
+                <input
+                  ref={bgImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const url = ev.target?.result as string;
+                      setBgUrl(url);
+                      setCanvasBg({ url, opacity: bgOpacity });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Wallpaper Opacity Slider */}
+              {bgUrl && (
+                <div className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center gap-2">
+                  <span className="opacity-75 text-[11px]">Wallpaper Opacity:</span>
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={1.0}
+                    step={0.05}
+                    value={bgOpacity}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setBgOpacity(val);
+                      setCanvasBg({ url: bgUrl, opacity: val });
+                    }}
+                    className="flex-1 accent-[var(--theme-accent)]"
+                  />
+                  <button
+                    onClick={() => {
+                      setBgUrl('');
+                      setCanvasBg(undefined);
+                    }}
+                    className="text-rose-400 text-xs font-semibold"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              {/* Preset Stickers */}
+              <div className="pt-2 border-t border-[var(--theme-border)]">
+                <span className="font-bold opacity-75 block mb-1.5">Preset Stickers:</span>
+                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                  {PRESET_STICKERS.map((stk) => (
+                    <button
+                      key={stk.id}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleAddPresetSticker(stk.svgDataUri, stk.name)}
+                      className="p-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] shrink-0 hover:scale-110 transition-transform"
+                    >
+                      <img src={stk.svgDataUri} alt={stk.name} className="w-9 h-9 object-contain" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 7. VOICE & AUDIO POPOVER */}
+          {canvaCategory === 'audio' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setShowAudioRecorder(true)}
+                  className="p-3 rounded-2xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex flex-col items-center justify-center gap-1.5 text-emerald-400 shadow-sm"
+                >
+                  <Mic size={20} />
+                  <span>Record Voice Memo</span>
+                </button>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => audioFileInputRef.current?.click()}
+                  className="p-3 rounded-2xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex flex-col items-center justify-center gap-1.5 text-sky-400 shadow-sm"
+                >
+                  <Music size={20} />
                   <span>Upload Audio File</span>
                 </button>
                 <input
@@ -976,101 +1406,20 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                   onChange={handleAudioUpload}
                   className="hidden"
                 />
-
-                <button
-                  onClick={() => setShowAudioRecorder(true)}
-                  className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] font-bold flex items-center justify-center gap-1.5 col-span-2 text-emerald-400"
-                >
-                  <Mic size={15} />
-                  <span>Record Live Voice Memo</span>
-                </button>
-              </div>
-
-              {/* Vector Stickers Row */}
-              <div className="pt-2 border-t border-[var(--theme-border)]">
-                <span className="font-bold opacity-75 block mb-1.5">Preset Stickers:</span>
-                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                  {PRESET_STICKERS.map((stk) => (
-                    <button
-                      key={stk.id}
-                      onClick={() => handleAddPresetSticker(stk.svgDataUri, stk.name)}
-                      className="p-1.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] shrink-0 hover:scale-110 transition-transform"
-                    >
-                      <img src={stk.svgDataUri} alt={stk.name} className="w-9 h-9 object-contain" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Wallpaper Background with Opacity Slider */}
-              <div className="pt-2 border-t border-[var(--theme-border)] space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold opacity-75">Canvas Background Wallpaper</span>
-                  <button
-                    onClick={() => bgImageInputRef.current?.click()}
-                    className="text-[11px] text-[var(--theme-accent)] font-semibold"
-                  >
-                    Select Image
-                  </button>
-                  <input
-                    ref={bgImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        const url = ev.target?.result as string;
-                        setBgUrl(url);
-                        setCanvasBg({ url, opacity: bgOpacity });
-                      };
-                      reader.readAsDataURL(file);
-                    }}
-                    className="hidden"
-                  />
-                </div>
-                {bgUrl && (
-                  <div className="flex items-center gap-2">
-                    <span className="opacity-60 text-[10px]">Opacity:</span>
-                    <input
-                      type="range"
-                      min={0.05}
-                      max={1.0}
-                      step={0.05}
-                      value={bgOpacity}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setBgOpacity(val);
-                        setCanvasBg({ url: bgUrl, opacity: val });
-                      }}
-                      className="flex-1 accent-[var(--theme-accent)] cursor-pointer"
-                    />
-                    <button
-                      onClick={() => {
-                        setBgUrl('');
-                        setCanvasBg(undefined);
-                      }}
-                      className="text-rose-400 text-[10px]"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           )}
 
-          {/* 4. Bilingual Typography & Custom TTF Fonts (Requirement #6-a) */}
-          {activeTab === 'fonts' && (
+          {/* 8. BILINGUAL & CUSTOM TTF FONTS POPOVER */}
+          {canvaCategory === 'fonts' && (
             <div className="space-y-3">
-              {/* Custom TTF Font Uploader */}
               <div className="p-2.5 rounded-xl bg-[var(--theme-bg)] border border-[var(--theme-border)] flex items-center justify-between">
                 <div>
-                  <span className="font-bold block">Upload Custom Font (.TTF / .WOFF)</span>
-                  <p className="text-[10px] opacity-60">Saves to app storage and backs up with vault</p>
+                  <span className="font-bold block">Upload Custom Font (.TTF/.WOFF)</span>
+                  <p className="text-[10px] opacity-60">Saves in app storage and encrypted backup</p>
                 </div>
                 <button
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => fontFileInputRef.current?.click()}
                   className="px-3 py-1.5 bg-[var(--theme-accent)] text-white font-bold rounded-lg text-xs"
                 >
@@ -1092,9 +1441,10 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                   {HINDI_FONTS.map((f) => (
                     <button
                       key={f.id}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setFontFamily(f.id);
-                        setActiveTab(null);
+                        setCanvaCategory(null);
                       }}
                       className={`p-2 rounded-xl border text-left font-medium ${
                         fontFamily === f.id
@@ -1116,9 +1466,10 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                   {ENGLISH_FONTS.map((f) => (
                     <button
                       key={f.id}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setFontFamily(f.id);
-                        setActiveTab(null);
+                        setCanvaCategory(null);
                       }}
                       className={`p-2 rounded-xl border text-left font-medium ${
                         fontFamily === f.id
@@ -1137,61 +1488,120 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         </div>
       )}
 
-      {/* FOOTER FORMATTING DOCKED BAR */}
+      {/* CANVA-STYLE DOCKED HORIZONTAL CATEGORIES TOOLBAR (Above Keyboard) */}
       <div
-        style={{ backgroundColor: 'var(--theme-surface)', borderColor: 'var(--theme-border)' }}
-        className="px-3 py-2.5 border-t z-30 shrink-0 flex items-center justify-between gap-1 text-xs backdrop-blur-md"
+        style={{
+          backgroundColor: 'var(--theme-surface)',
+          borderColor: 'var(--theme-border)',
+        }}
+        className="px-2 py-2 border-t z-30 shrink-0 flex items-center gap-1.5 overflow-x-auto no-scrollbar backdrop-blur-md"
       >
         <button
-          onClick={() => setActiveTab(activeTab === 'char' ? null : 'char')}
-          className={`flex-1 py-1.5 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 border transition-all ${
-            activeTab === 'char'
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'styles' ? null : 'styles')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'styles'
               ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
-              : 'border-[var(--theme-border)] opacity-70 hover:opacity-100'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
           }`}
         >
-          <Type size={15} />
+          <Type size={14} />
           <span>Styles</span>
         </button>
 
         <button
-          onClick={() => setActiveTab(activeTab === 'canvas' ? null : 'canvas')}
-          className={`flex-1 py-1.5 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 border transition-all ${
-            activeTab === 'canvas'
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'headings' ? null : 'headings')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'headings'
               ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
-              : 'border-[var(--theme-border)] opacity-70 hover:opacity-100'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
           }`}
         >
-          <AlignLeft size={15} />
-          <span>Format</span>
+          <Heading size={14} />
+          <span>Headings (H1-H20)</span>
         </button>
 
         <button
-          onClick={() => setActiveTab(activeTab === 'media' ? null : 'media')}
-          className={`flex-1 py-1.5 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 border transition-all ${
-            activeTab === 'media'
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'paragraph' ? null : 'paragraph')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'paragraph'
               ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
-              : 'border-[var(--theme-border)] opacity-70 hover:opacity-100'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
           }`}
         >
-          <ImageIcon size={15} />
-          <span>Media</span>
+          <AlignLeft size={14} />
+          <span>Format & Lists</span>
         </button>
 
         <button
-          onClick={() => setActiveTab(activeTab === 'fonts' ? null : 'fonts')}
-          className={`flex-1 py-1.5 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 border transition-all ${
-            activeTab === 'fonts'
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'spacing' ? null : 'spacing')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'spacing'
               ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
-              : 'border-[var(--theme-border)] opacity-70 hover:opacity-100'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
           }`}
         >
-          <span className="truncate max-w-[65px]">{fontFamily.split(' ')[0]}</span>
+          <Sliders size={14} />
+          <span>Spacing</span>
+        </button>
+
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'colors' ? null : 'colors')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'colors'
+              ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
+          }`}
+        >
+          <Palette size={14} />
+          <span>Colors</span>
+        </button>
+
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'media' ? null : 'media')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'media'
+              ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
+          }`}
+        >
+          <ImageIcon size={14} />
+          <span>Media & Filters</span>
+        </button>
+
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'audio' ? null : 'audio')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'audio'
+              ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
+          }`}
+        >
+          <Mic size={14} />
+          <span>Audio</span>
+        </button>
+
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setCanvaCategory(canvaCategory === 'fonts' ? null : 'fonts')}
+          className={`py-1.5 px-3 rounded-xl font-bold flex items-center gap-1.5 shrink-0 border transition-all text-xs ${
+            canvaCategory === 'fonts'
+              ? 'border-[var(--theme-accent)] bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]'
+              : 'border-[var(--theme-border)] opacity-75 hover:opacity-100'
+          }`}
+        >
+          <span className="truncate max-w-[70px]">{fontFamily.split(' ')[0]}</span>
           <ChevronDown size={13} />
         </button>
       </div>
 
-      {/* 20 IMAGE FILTERS MODAL WITH HORIZONTAL LIVE THUMBNAIL PREVIEWS (Requirement #6-a & user answer) */}
+      {/* 20 IMAGE FILTERS MODAL WITH HORIZONTAL LIVE THUMBNAILS */}
       {editingMediaItem && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end select-none">
           <div
@@ -1209,7 +1619,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
                   <SlidersHorizontal size={16} className="text-[var(--theme-accent)]" />
                   <span>20 Image Filters & Adjustments</span>
                 </h3>
-                <p className="text-[11px] opacity-60">Tap any filter for instant live preview</p>
+                <p className="text-[11px] opacity-60">Instant live preview</p>
               </div>
               <button
                 onClick={() => setEditingMediaItem(null)}
@@ -1219,7 +1629,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
               </button>
             </div>
 
-            {/* Large Preview */}
+            {/* Live Preview Display */}
             <div className="h-44 w-full rounded-2xl overflow-hidden bg-[var(--theme-bg)] flex items-center justify-center border border-[var(--theme-border)]">
               <img
                 src={editingMediaItem.url}
@@ -1229,7 +1639,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
               />
             </div>
 
-            {/* Horizontal Thumbnail Carousel with Instant Live Preview */}
+            {/* Horizontal Thumbnails Carousel */}
             <div className="flex gap-2.5 overflow-x-auto py-2 no-scrollbar">
               {IMAGE_FILTERS.map((filt) => (
                 <button
@@ -1272,7 +1682,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         </div>
       )}
 
-      {/* SCHEDULED REMINDER MODAL (Requirement #6) */}
+      {/* SCHEDULED REMINDER MODAL */}
       {showReminderPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -1347,7 +1757,7 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
         </div>
       )}
 
-      {/* PROFILE PIC PICKER MODAL (Requirement #6: Emoji with bg color, custom image, or GIF) */}
+      {/* AVATAR PICKER MODAL */}
       {showAvatarPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div onClick={() => setShowAvatarPicker(false)} className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
@@ -1362,7 +1772,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
               </button>
             </div>
 
-            {/* Custom Image / GIF Upload Button */}
             <div className="flex gap-2">
               <button
                 onClick={() => avatarImageInputRef.current?.click()}
@@ -1393,7 +1802,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
               />
             </div>
 
-            {/* Emoji Background Color Picker */}
             <div className="pt-2 border-t border-[var(--theme-border)] flex items-center justify-between text-xs">
               <span className="opacity-75">Emoji Background Color:</span>
               <input
@@ -1404,7 +1812,6 @@ export const DiaryCanvas: React.FC<DiaryCanvasProps> = ({
               />
             </div>
 
-            {/* Emojis Grid */}
             <div className="grid grid-cols-4 gap-2 pt-1 max-h-48 overflow-y-auto">
               {EMOJI_AVATARS.map((emoji) => (
                 <button
