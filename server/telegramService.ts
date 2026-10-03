@@ -1,16 +1,23 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { Api } from 'telegram/tl/index.js';
+import { TELEGRAM_CONFIG } from './config.js';
 
-// Cache active client sessions by phone number or session token
+// Cache active client sessions
 const activeClients: Map<string, { client: TelegramClient; session: StringSession }> = new Map();
 
-// Helper to get or create a TelegramClient
+// Helper to get or create a TelegramClient using developer credentials
 export async function getOrCreateClient(
-  apiId: number,
-  apiHash: string,
   sessionString: string = ''
 ): Promise<{ client: TelegramClient; session: StringSession }> {
+  if (!TELEGRAM_CONFIG.isConfigured()) {
+    throw new Error(
+      'Developer Credentials Missing: Please insert your Telegram api_id and api_hash in server/config.ts or .env file.'
+    );
+  }
+
+  const apiId = TELEGRAM_CONFIG.apiId;
+  const apiHash = TELEGRAM_CONFIG.apiHash;
   const cacheKey = sessionString ? `sess_${sessionString.slice(0, 16)}` : `temp_${apiId}`;
   
   if (activeClients.has(cacheKey)) {
@@ -32,20 +39,53 @@ export async function getOrCreateClient(
   return entry;
 }
 
+// Check Backend Status & Telegram MTProto Connection
+export async function getTelegramBackendStatus(): Promise<{
+  isConfigured: boolean;
+  apiIdPreview: string;
+  connectedToTelegramDC: boolean;
+  message: string;
+}> {
+  const isConfigured = TELEGRAM_CONFIG.isConfigured();
+  if (!isConfigured) {
+    return {
+      isConfigured: false,
+      apiIdPreview: 'Not set',
+      connectedToTelegramDC: false,
+      message: 'Developer credentials not inserted yet. Configure server/config.ts or .env.',
+    };
+  }
+
+  try {
+    const { client } = await getOrCreateClient();
+    return {
+      isConfigured: true,
+      apiIdPreview: `${TELEGRAM_CONFIG.apiId}`.slice(0, 3) + '***',
+      connectedToTelegramDC: Boolean(client.connected),
+      message: 'Connected to Telegram MTProto Data Centers.',
+    };
+  } catch (err: any) {
+    return {
+      isConfigured: true,
+      apiIdPreview: `${TELEGRAM_CONFIG.apiId}`.slice(0, 3) + '***',
+      connectedToTelegramDC: false,
+      message: err.message || 'Connecting to Telegram...',
+    };
+  }
+}
+
 // 1. Send Code via MTProto
 export async function sendTelegramAuthCode(
-  phoneNumber: string,
-  apiId: number,
-  apiHash: string
+  phoneNumber: string
 ): Promise<{ phoneCodeHash: string; timeout: number }> {
   try {
-    const { client } = await getOrCreateClient(apiId, apiHash);
+    const { client } = await getOrCreateClient();
     
     // Call official Telegram MTProto sendCode
     const result = await client.sendCode(
       {
-        apiId,
-        apiHash,
+        apiId: TELEGRAM_CONFIG.apiId,
+        apiHash: TELEGRAM_CONFIG.apiHash,
       },
       phoneNumber
     );
@@ -56,7 +96,6 @@ export async function sendTelegramAuthCode(
     };
   } catch (error: any) {
     console.error('MTProto sendCode error:', error);
-    // If Telegram returns an error (e.g., PHONE_NUMBER_INVALID, API_ID_INVALID), format cleanly
     throw new Error(error.errorMessage || error.message || 'Failed to send verification code from Telegram.');
   }
 }
@@ -66,8 +105,6 @@ export async function signInTelegramUser(
   phoneNumber: string,
   phoneCode: string,
   phoneCodeHash: string,
-  apiId: number,
-  apiHash: string,
   password?: string
 ): Promise<{
   sessionString: string;
@@ -83,7 +120,7 @@ export async function signInTelegramUser(
   };
 }> {
   try {
-    const { client, session } = await getOrCreateClient(apiId, apiHash);
+    const { client, session } = await getOrCreateClient();
 
     // Call official Telegram MTProto sign in
     await client.invoke(
@@ -94,10 +131,7 @@ export async function signInTelegramUser(
       })
     );
 
-    // Save session string
     const sessionString = session.save();
-
-    // Fetch official User Profile from Telegram
     const me: any = await client.getMe();
 
     const user = {
@@ -116,18 +150,24 @@ export async function signInTelegramUser(
     console.error('MTProto signIn error:', error);
 
     // Handle 2FA password requirement
-    if (error.errorMessage === 'SESSION_PASSWORD_NEEDED' && password) {
-      const { client, session } = await getOrCreateClient(apiId, apiHash);
+    if (error.errorMessage === 'SESSION_PASSWORD_NEEDED') {
+      if (!password) {
+        throw new Error('SESSION_PASSWORD_NEEDED');
+      }
+
+      const { client, session } = await getOrCreateClient();
       await (client as any).signInWithPassword(
         {
-          apiId,
-          apiHash,
+          apiId: TELEGRAM_CONFIG.apiId,
+          apiHash: TELEGRAM_CONFIG.apiHash,
           password: async () => password,
         },
         {}
       );
+
       const sessionString = session.save();
       const me: any = await client.getMe();
+
       return {
         sessionString,
         user: {
@@ -148,13 +188,9 @@ export async function signInTelegramUser(
 }
 
 // 3. Verify Session & Get Me
-export async function getTelegramMe(
-  sessionString: string,
-  apiId: number,
-  apiHash: string
-) {
+export async function getTelegramMe(sessionString: string) {
   try {
-    const { client } = await getOrCreateClient(apiId, apiHash, sessionString);
+    const { client } = await getOrCreateClient(sessionString);
     const me: any = await client.getMe();
     if (!me) {
       throw new Error('Invalid or expired session');

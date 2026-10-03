@@ -7,6 +7,7 @@ import {
   sendTelegramAuthCode,
   signInTelegramUser,
   getTelegramMe,
+  getTelegramBackendStatus,
 } from './server/telegramService.js';
 import { voiceGateway } from './server/voiceGateway.js';
 
@@ -20,22 +21,28 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
+  // --- Telegram MTProto Status & Health Check ---
+  app.get('/api/telegram/status', async (req, res) => {
+    try {
+      const status = await getTelegramBackendStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Status check failed' });
+    }
+  });
+
   // --- Telegram MTProto Authentication API Routes ---
 
   // 1. Send Code via MTProto
   app.post('/api/telegram/send-code', async (req, res) => {
     try {
-      const { phoneNumber, apiId, apiHash } = req.body;
-      if (!phoneNumber || !apiId || !apiHash) {
-        res.status(400).json({ error: 'Missing phoneNumber, apiId, or apiHash.' });
+      const { phoneNumber } = req.body;
+      if (!phoneNumber) {
+        res.status(400).json({ error: 'Please provide a phone number.' });
         return;
       }
 
-      const result = await sendTelegramAuthCode(
-        phoneNumber,
-        parseInt(apiId, 10),
-        apiHash
-      );
+      const result = await sendTelegramAuthCode(phoneNumber);
       res.json(result);
     } catch (err: any) {
       console.error('Error in /api/telegram/send-code:', err.message);
@@ -46,9 +53,9 @@ async function startServer() {
   // 2. Sign In via MTProto
   app.post('/api/telegram/sign-in', async (req, res) => {
     try {
-      const { phoneNumber, phoneCode, phoneCodeHash, apiId, apiHash, password } = req.body;
-      if (!phoneNumber || !phoneCode || !phoneCodeHash || !apiId || !apiHash) {
-        res.status(400).json({ error: 'Missing required sign-in parameters.' });
+      const { phoneNumber, phoneCode, phoneCodeHash, password } = req.body;
+      if (!phoneNumber || !phoneCode || !phoneCodeHash) {
+        res.status(400).json({ error: 'Missing phoneNumber, phoneCode, or phoneCodeHash.' });
         return;
       }
 
@@ -56,8 +63,6 @@ async function startServer() {
         phoneNumber,
         phoneCode,
         phoneCodeHash,
-        parseInt(apiId, 10),
-        apiHash,
         password
       );
       res.json(result);
@@ -70,17 +75,13 @@ async function startServer() {
   // 3. Get Current User via MTProto Session
   app.post('/api/telegram/me', async (req, res) => {
     try {
-      const { sessionString, apiId, apiHash } = req.body;
-      if (!sessionString || !apiId || !apiHash) {
-        res.status(400).json({ error: 'Missing sessionString, apiId, or apiHash.' });
+      const { sessionString } = req.body;
+      if (!sessionString) {
+        res.status(400).json({ error: 'Missing sessionString.' });
         return;
       }
 
-      const user = await getTelegramMe(
-        sessionString,
-        parseInt(apiId, 10),
-        apiHash
-      );
+      const user = await getTelegramMe(sessionString);
       res.json({ user });
     } catch (err: any) {
       res.status(401).json({ error: err.message || 'Session expired.' });

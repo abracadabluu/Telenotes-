@@ -1,28 +1,7 @@
-import { TelegramUser, TelegramApiConfig } from '../types';
+import { TelegramUser } from '../types';
 
 const STORAGE_KEY_USER = 'telespaces_auth_user';
-const STORAGE_KEY_API_CONFIG = 'telespaces_api_config';
 const STORAGE_KEY_SESSION = 'telespaces_session_token';
-
-// Default public API credentials (fallback if user hasn't input their own)
-const DEFAULT_API_CONFIG: TelegramApiConfig = {
-  apiId: '2040',
-  apiHash: 'b18441a1ff607e10a989891a5462e627',
-};
-
-export const getStoredApiConfig = (): TelegramApiConfig => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_API_CONFIG);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to parse api config', e);
-  }
-  return DEFAULT_API_CONFIG;
-};
-
-export const saveApiConfig = (config: TelegramApiConfig): void => {
-  localStorage.setItem(STORAGE_KEY_API_CONFIG, JSON.stringify(config));
-};
 
 export const getStoredAuthUser = (): TelegramUser | null => {
   try {
@@ -55,102 +34,80 @@ export interface SendCodeResult {
   timeout: number;
 }
 
-// 1. Call Backend MTProto send-code
-export const sendTelegramCode = async (
-  phone: string,
-  apiConfig?: TelegramApiConfig
-): Promise<SendCodeResult> => {
-  const config = apiConfig || getStoredApiConfig();
+export interface BackendStatus {
+  isConfigured: boolean;
+  apiIdPreview: string;
+  connectedToTelegramDC: boolean;
+  message: string;
+}
 
+// Check Backend MTProto status
+export const checkTelegramBackendStatus = async (): Promise<BackendStatus> => {
   try {
-    const res = await fetch('/api/telegram/send-code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phoneNumber: phone.trim(),
-        apiId: config.apiId,
-        apiHash: config.apiHash,
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to send verification code from Telegram.');
+    const res = await fetch('/api/telegram/status');
+    if (res.ok) {
+      return await res.json();
     }
-
-    return {
-      phoneCodeHash: data.phoneCodeHash,
-      timeout: data.timeout || 60,
-    };
-  } catch (err: any) {
-    // If backend MTProto returned an explicit error (e.g. PHONE_NUMBER_INVALID or API_ID_INVALID)
-    if (err.message && !err.message.includes('Failed to fetch')) {
-      throw err;
-    }
-
-    // Local simulation fallback for testing offline or mock testing
-    console.warn('Backend MTProto unreachable, falling back to simulated session:', err.message);
-    const mockHash = 'sim_hash_' + Math.random().toString(36).slice(2, 8);
-    return {
-      phoneCodeHash: mockHash,
-      timeout: 60,
-    };
+  } catch (e) {
+    console.warn('Backend status check failed', e);
   }
+  return {
+    isConfigured: false,
+    apiIdPreview: 'Unavailable',
+    connectedToTelegramDC: false,
+    message: 'Backend server offline or unreachable.',
+  };
 };
 
-// 2. Call Backend MTProto sign-in
+// 1. Send Code via Backend MTProto
+export const sendTelegramCode = async (phone: string): Promise<SendCodeResult> => {
+  const res = await fetch('/api/telegram/send-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phoneNumber: phone.trim(),
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to send verification code from Telegram.');
+  }
+
+  return {
+    phoneCodeHash: data.phoneCodeHash,
+    timeout: data.timeout || 60,
+  };
+};
+
+// 2. Sign In via Backend MTProto
 export const verifyTelegramCode = async (
   phone: string,
   code: string,
   phoneCodeHash: string,
   password?: string
 ): Promise<TelegramUser> => {
-  const config = getStoredApiConfig();
+  const res = await fetch('/api/telegram/sign-in', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phoneNumber: phone.trim(),
+      phoneCode: code.trim(),
+      phoneCodeHash,
+      password: password?.trim() || undefined,
+    }),
+  });
 
-  try {
-    const res = await fetch('/api/telegram/sign-in', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phoneNumber: phone.trim(),
-        phoneCode: code.trim(),
-        phoneCodeHash,
-        apiId: config.apiId,
-        apiHash: config.apiHash,
-        password,
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Invalid Telegram code or password.');
+  const data = await res.json();
+  if (!res.ok) {
+    if (data.error === 'SESSION_PASSWORD_NEEDED') {
+      throw new Error('SESSION_PASSWORD_NEEDED');
     }
-
-    saveAuthUser(data.user, data.sessionString);
-    return data.user;
-  } catch (err: any) {
-    if (err.message && !err.message.includes('Failed to fetch')) {
-      throw err;
-    }
-
-    // Fallback simulation for sandbox environments
-    console.warn('Backend MTProto sign-in fallback:', err.message);
-    const cleanedPhone = phone.replace(/[^0-9]/g, '');
-    const suffix = cleanedPhone.slice(-4) || 'user';
-    const fallbackUser: TelegramUser = {
-      id: 'tg_' + cleanedPhone,
-      username: 'user_' + suffix,
-      firstName: 'Telegram User',
-      lastName: `(${suffix})`,
-      phone: phone.trim(),
-      avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanedPhone}&backgroundColor=0e1621,17212b,2b5278`,
-      bio: '🎙️ Live on TeleSpaces | Voice Chat Enthusiast',
-      isVerified: true,
-    };
-
-    saveAuthUser(fallbackUser, 'sim_session_' + Date.now());
-    return fallbackUser;
+    throw new Error(data.error || 'Invalid verification code.');
   }
+
+  saveAuthUser(data.user, data.sessionString);
+  return data.user;
 };
 
 // Demo Telegram contacts for testing voice calls
