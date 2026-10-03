@@ -19,7 +19,7 @@ import { calculateStorageBreakdown } from './services/cryptoVault';
 
 // Default initial state
 const DEFAULT_FOLDERS: Folder[] = [
-  { id: 'all', name: 'All Nudes', icon: '🫂', color: '#38bdf8', isSystem: true },
+  { id: 'all', name: 'All Notes', icon: '💬', color: '#38bdf8', isSystem: true },
   { id: 'personal', name: 'Personal', icon: '🌱', color: '#10b981' },
   { id: 'ideas', name: 'Story Ideas', icon: '💡', color: '#f59e0b' },
   { id: 'work', name: 'Manuscripts', icon: '📚', color: '#6366f1' },
