@@ -5,20 +5,30 @@
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-serif: 'Lora', Georgia, serif;
     --font-mono: 'JetBrains Mono', monospace;
+    
+    /* Native Safe Area Insets */
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
   }
 
   html, body, #root {
-    height: 100%;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background-color: #020617;
+    /* Fixed 100% ki jagah dynamic dvh height for edge-to-edge fit */
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    width: 100vw !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background-color: #020617; /* Background Slate-950 status bar se merge hone ke liye */
   }
 
   body {
     font-family: var(--font-sans);
     -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
   }
 }
 
