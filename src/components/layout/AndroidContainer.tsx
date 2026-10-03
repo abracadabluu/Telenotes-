@@ -73,14 +73,9 @@ export const AndroidContainer: React.FC<AndroidContainerProps> = ({ children, th
           </div>
         )}
 
-        {/* Inner App Shell */}
+                {/* Inner App Shell */}
         <div className="flex-1 flex flex-col h-full overflow-hidden relative">
           {children}
-        </div>
-
-        {/* Android Gesture Bar */}
-        <div className="py-1 flex justify-center shrink-0 bg-transparent pointer-events-none">
-          <div className="w-24 h-1 rounded-full bg-slate-500/30" />
         </div>
       </div>
     </div>
