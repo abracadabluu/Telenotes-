@@ -17,10 +17,10 @@ dotenv.config();
  */
 
 // Yahan apna Telegram API ID dalein (numbers only)
-const DEFAULT_TELEGRAM_API_ID = '';
+const DEFAULT_TELEGRAM_API_ID = '30428833';
 
 // Yahan apna Telegram API Hash dalein (hexadecimal string)
-const DEFAULT_TELEGRAM_API_HASH = '';
+const DEFAULT_TELEGRAM_API_HASH = '41c474aebd7507799bd322e7517286c2';
 
 export const TELEGRAM_CONFIG = {
   // Read from environment variable or fallback to developer default
