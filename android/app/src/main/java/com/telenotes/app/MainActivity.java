@@ -6,6 +6,7 @@ import android.os.Build;
 import android.os.Bundle;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.WindowCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -14,6 +15,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        // Edge-to-edge full screen: system bars (status/navigation) ke pichhe draw hoga
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
         requestHardwarePermissions();
     }
 
