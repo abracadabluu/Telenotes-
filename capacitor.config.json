@@ -28,6 +28,10 @@
       "overlaysWebView": true,
       "style": "DARK",
       "backgroundColor": "#020617"
+    },
+    "NavigationBar": {
+      "displaysInLowProfile": false,
+      "backgroundColor": "#020617"
     }
   }
 }
